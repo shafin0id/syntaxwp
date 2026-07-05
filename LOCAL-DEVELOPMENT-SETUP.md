@@ -17,7 +17,7 @@ Install these once, in this order:
 
 | Tool | Version | Check | Install |
 |---|---|---|---|
-| Node.js | 20 LTS+ (tested on 22) | `node -v` | `brew install node@20` (or nvm) |
+| Node.js | 22.13+ (pnpm 11 requires it; tested on 22.22.2) | `node -v` | `brew install node@22` (or nvm) |
 | pnpm | 11+ (tested on 11.10.0) | `pnpm -v` | `corepack enable && corepack prepare pnpm@latest --activate` |
 | Docker Desktop | latest | `docker info` runs without error | https://www.docker.com/products/docker-desktop |
 | Supabase CLI | latest (tested on 2.109.0) | `supabase --version` | `brew install supabase/tap/supabase` |

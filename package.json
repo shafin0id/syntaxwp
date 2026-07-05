@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.10.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "concurrently -n dashboard,api,worker -c blue,green,yellow \"pnpm --filter @syntaxwp/dashboard dev\" \"pnpm --filter @syntaxwp/api dev\" \"pnpm --filter @syntaxwp/api worker\"",
