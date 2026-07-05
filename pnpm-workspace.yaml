@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+
+overrides:
+  hono: 4.12.25
+
+allowBuilds:
+  esbuild: true
+  msw: true
+  sharp: true
+
+onlyBuiltDependencies:
+  - sharp
+  - msw
+  - esbuild

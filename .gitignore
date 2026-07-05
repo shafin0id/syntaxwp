@@ -1,1 +1,13 @@
 node_modules
+
+# env files — never commit secrets, only the .example templates
+.env
+.env.*
+!.env.example
+
+# build output
+dist/
+.next/
+*.tsbuildinfo
+
+# supabase local runtime (its own .gitignore in supabase/ covers .branches/.temp)

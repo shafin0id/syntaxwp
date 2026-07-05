@@ -1,0 +1,31 @@
+{
+  "name": "@syntaxwp/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "worker": "tsx watch src/worker/index.ts",
+    "seed:user": "tsx src/auth/seed-dev-user.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@supabase/supabase-js": "^2.47.10",
+    "@syntaxwp/db": "workspace:*",
+    "@syntaxwp/shared": "workspace:*",
+    "dotenv": "^16.4.7",
+    "graphile-worker": "^0.16.6",
+    "hono": "4.12.25",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
