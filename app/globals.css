@@ -1,0 +1,265 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-outfit), 'Outfit Fallback';
+  --font-mono: var(--font-geist-mono), 'Geist Mono Fallback';
+  --text-xs: 0.80rem;
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
+  --color-processing: var(--processing);
+  --color-processing-foreground: var(--processing-foreground);
+  --color-processing-soft: var(--processing-soft);
+
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-gradient: var(--primary-gradient);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 4px;
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius);
+
+  /* Typography Scales */
+  --text-4xs: 0.5rem;           /* 8px */
+  --text-3xs: 0.5625rem;        /* 9px */
+  --text-2xs: 0.625rem;         /* 10px */
+  --text-xs-compact: 0.6875rem; /* 11px */
+  --text-sm-compact: 0.9375rem; /* 15px */
+  --text-3xl-compact: 1.625rem; /* 26px */
+  --text-4xl-compact: 1.75rem;  /* 28px */
+
+  /* Spacing Tokens */
+  --spacing-18px: 1.125rem;      /* 18px */
+  --spacing-21px: 1.3125rem;     /* 21px */
+  --spacing-22px: 1.375rem;      /* 22px */
+  --spacing-34px: 2.125rem;      /* 34px */
+  --spacing-38px: 2.375rem;      /* 38px */
+  --spacing-42px: 2.625rem;      /* 42px */
+  --spacing-header-height: 3.5625rem; /* 57px */
+  --spacing-glance-card-min-h: 6.875rem; /* 110px */
+  --spacing-140px: 8.75rem;      /* 140px */
+  --spacing-145px: 9.0625rem;    /* 145px */
+  --spacing-150px: 9.375rem;      /* 150px */
+  --spacing-180px: 11.25rem;     /* 180px */
+  --spacing-190px: 11.875rem;    /* 190px */
+  --spacing-200px: 12.5rem;      /* 200px */
+  --spacing-sidebar-width: 15rem;       /* 240px */
+  --spacing-drawer-width: 17.5rem;      /* 280px */
+  --spacing-rail-width: 17.5rem;        /* 280px (Adjusted from 300px) */
+  --spacing-360px: 22.5rem;      /* 360px */
+  --spacing-80vh: 80vh;          /* Modal Viewport Height */
+  --opacity-blueprint: 0.02;     /* Blueprint mesh grid opacity */
+
+  /* Custom Colors & Shadows */
+  --color-primary-soft-hover: #EAF2FF;
+  --color-primary-soft-active: #DCEAFF;
+  --color-secondary-bg: #F5F7FA;
+  --color-secondary-border: #D7DEE8;
+  --color-track: #E4E9F0;
+  --shadow-glow: 0 0 10px 2px rgba(0, 85, 255, 0.4);
+}
+
+:root {
+  color-scheme: light;
+  --radius: 8px;
+
+  /* Warm sand canvas theme */
+  --background: #F6F5F1;
+  --foreground: oklch(0.18 0.01 80);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 80);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 80);
+
+  /* Vibrant electric Royal Blue brand color */
+  --primary: #0055FF;
+  --primary-hover: #0047D9;
+  --primary-active: #003DBA;
+  --primary-foreground: oklch(1 0 0);
+  --primary-gradient: linear-gradient(135deg, #0055FF, #0055FF);
+  --use-gradient: 0;
+  --use-noise: 0;
+
+  --secondary: oklch(0.91 0.005 80);
+  --secondary-foreground: oklch(0.18 0.01 80);
+  --muted: oklch(0.91 0.005 80);
+  --muted-foreground: oklch(0.5 0.01 80);
+  --accent: oklch(0.93 0.006 80);
+  --accent-foreground: oklch(0.18 0.01 80);
+
+  --destructive: #FF3B30;
+
+  --border: oklch(0.91 0.005 80);
+  --input: oklch(0.91 0.005 80);
+  --ring: oklch(0.55 0.28 250);
+
+  /* Clean alerts */
+  --success: #00C853;
+  --success-foreground: #ffffff;
+  --success-soft: rgba(0, 200, 83, 0.08);
+  --warning: #FFB300;
+  --warning-foreground: #b45309;       /* Dark Amber for high contrast */
+  --warning-soft: rgba(255, 179, 0, 0.08);
+  --danger: #FF3B30;
+  --danger-foreground: #ffffff;
+  --danger-soft: rgba(255, 59, 48, 0.08);
+  --info: #00C2FF;
+  --info-foreground: #ffffff;
+  --info-soft: rgba(0, 194, 255, 0.08);
+  --processing: #7C4DFF;
+  --processing-foreground: #ffffff;
+  --processing-soft: rgba(124, 77, 255, 0.08);
+
+  --chart-1: oklch(0.55 0.28 250);
+  --chart-2: #00C853;
+  --chart-3: #FFB300;
+  --chart-4: #00C2FF;
+  --chart-5: #FF3B30;
+
+  /* Sidebar inherits page background for unified look */
+  --sidebar: var(--background);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.025em;
+  }
+}
+
+/* Blueprint Grid Pattern on sand background */
+@utility bg-blueprint-grid {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, oklch(0.18 0.01 80 / 4%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.18 0.01 80 / 4%) 1px, transparent 1px);
+}
+.dark .bg-blueprint-grid {
+  background-image: 
+    linear-gradient(to right, oklch(1 0 0 / 3%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 3%) 1px, transparent 1px);
+}
+
+/* Solid Blue Blueprint Card Overlay */
+@utility bg-blue-blueprint {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  background-size: 16px 16px;
+  background-image: 
+    linear-gradient(to right, oklch(1 0 0 / 12%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 12%) 1px, transparent 1px) !important;
+}
+
+/* Diagonal Warning/Alert Banner Pattern */
+@utility bg-diagonal-hatch {
+  background-size: 10px 10px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    oklch(0.18 0.01 80 / 3%) 4px,
+    oklch(0.18 0.01 80 / 3%) 5px
+  );
+}
+.dark .bg-diagonal-hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    oklch(1 0 0 / 4%) 4px,
+    oklch(1 0 0 / 4%) 5px
+  );
+}
+
+/* Global primary button dark hover color */
+.bg-primary:hover,
+.hover\:bg-primary\/95:hover {
+  background-color: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+}
+
+.bg-primary:active,
+.hover\:bg-primary\/95:active {
+  background-color: var(--primary-active) !important;
+  border-color: var(--primary-active) !important;
+}
+
+@keyframes fast-fade-in-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-tab-content {
+  animation: fast-fade-in-slide 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
