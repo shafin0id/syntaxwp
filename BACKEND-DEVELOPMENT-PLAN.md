@@ -71,6 +71,18 @@ WorkOrder types) as soon as they exist in Task 1, without waiting for Track A's 
 plugin to be fully implemented — stub the executor, build the real thing later. Explicit
 cross-track dependencies are called out inline below.
 
+**Revised after review:** the original split understated two real dependencies — B2's ingestion
+endpoints need site-authenticated API access, and Task A5 (which provides that) was sequenced 4th
+in Track A, not 1st. Fixed by (a) splitting A5 into A5a (core auth + endpoints, moved right after
+A2) and A5b (work-order/streaming, stays after A3), and (b) adding a short joint pre-step (below)
+that defines stub interfaces for the pieces that stay genuinely coupled, so Track B never blocks
+waiting on Track A's real implementation.
+
+**File ownership in `apps/api`** (avoids merge conflicts once both devs are touching the same app):
+Track A owns `src/auth/*`, `src/middleware/rate-limit.ts`, `src/routes/sites.ts`. Track B owns
+`src/routes/ingestion.ts`, `src/routes/probes.ts`. Both are mounted separately in `app.ts`;
+swapping Track B's stub auth for Track A's real middleware later is a one-import change.
+
 ---
 
 ## Task 1 — Backend Foundation *(sequential prerequisite, blocks both tracks)* ✅ Done
@@ -134,7 +146,26 @@ its `graphile_worker` schema against local Postgres alongside all 9 Drizzle-mana
 
 ---
 
+## Pre-Step — Cross-Track Contracts *(joint, ~30–60 min, do together before splitting into tracks)*
+
+Both tracks build against these stub interfaces starting immediately instead of waiting for the
+real implementation. Swapping a stub for the real thing later is a one-line change, not a rewrite —
+same pattern already used for B6.2's mocked ephemeral container below.
+
+- [ ] **C1** Site HMAC verify function signature (e.g. `verifySiteAuth(req): { valid: boolean, siteId?: string }`)
+  — stub always returns `valid: true`; Track A implements the real check in A5a.1.
+- [ ] **C2** `PolicyDecision` interface (`allow | ask | block`) in `packages/shared` — stub always
+  returns `allow`; Track A implements the real logic in A3.3.
+- [ ] **C3** `HealthCheckBridge` request/response contract (params + JSON shape) — Track B mocks the
+  HTTP response for B5; Track A implements the real PHP bridge in A6.1.
+
+---
+
 ## Track A — Platform, Security & Execution Substrate
+
+**Sequence:** A2 → A5a → A3 → A4 → A5b → A6 → A7 → A8 → A9. A5a is pulled forward (right after A2,
+ahead of A3/A4) because Track B's B2 depends on it for site-authenticated ingestion — see the
+"Revised after review" note above.
 
 ### Task A2 — Data Layer & Multi-Tenancy
 - [ ] A2.1 CRUD repositories for `orgs`/`sites` (§14.1).
@@ -143,13 +174,21 @@ its `graphile_worker` schema against local Postgres alongside all 9 Drizzle-mana
   level, not just app level) (§14.2).
 - [ ] A2.4 Site secret generation + encrypted-at-rest storage (§15.3).
 
+### Task A5a — Hono API Surface: Core & Auth *(do this right after A2 — Track B's B2 depends on it)*
+- [ ] A5a.1 Dual auth model: plugin-origin requests authenticated by site HMAC (replaces C1 stub),
+  dashboard-origin requests authenticated by user session.
+- [ ] A5a.2 Core endpoints: `POST /api/sites`, `GET /api/sites/:id`, `POST /api/sites/:id/heartbeat`,
+  `POST /api/sites/:id/events`.
+- [ ] A5a.3 Rate limiting middleware for the heartbeat/events/probe endpoint classes (§15.2;
+  work_claims class added in A5b).
+
 ### Task A3 — HMAC Work Order Engine & Policy Engine
 - [ ] A3.1 `WorkOrder` issuance: nonce, `issued_at`/`expires_at` (5 min window), HMAC-SHA256 signing
   (§8.2).
 - [ ] A3.2 Graphile Worker job to expire/garbage-collect stale unclaimed work orders.
-- [ ] A3.3 Policy engine: `policyDecision()`, `ACTION_RISK_MAP`, allow/ask/block logic (§9.3).
-  Unit tests covering every `(action, tier)` combination in the map, including the permanently
-  blocked `run_arbitrary_command`.
+- [ ] A3.3 Policy engine: `policyDecision()`, `ACTION_RISK_MAP`, allow/ask/block logic (§9.3),
+  replaces the C2 stub. Unit tests covering every `(action, tier)` combination in the map, including
+  the permanently blocked `run_arbitrary_command`.
 - [ ] A3.4 API endpoints for user approval flow (approve/decline a pending "ask" work order).
 
 ### Task A4 — Dead Man's Switch & Snapshot/Revert
@@ -159,12 +198,10 @@ its `graphile_worker` schema against local Postgres alongside all 9 Drizzle-mana
 - [ ] A4.3 Revert executor: restore from snapshot, confirm restored via health probe.
 - [ ] A4.4 30-day snapshot retention/cleanup job (§14.2).
 
-### Task A5 — Hono API Surface (core + security middleware)
-- [ ] A5.1 Rate limiting middleware per endpoint class (§15.2: heartbeat, events, work_claims, probe).
-- [ ] A5.2 Endpoints: `POST /api/sites`, `GET /api/sites/:id`, `POST /api/sites/:id/heartbeat`,
-  `POST /api/sites/:id/events`, work-order claim endpoint, `GET /api/sites/:id/stream` (SSE, §10.3).
-- [ ] A5.3 Dual auth model: plugin-origin requests authenticated by site HMAC, dashboard-origin
-  requests authenticated by user session.
+### Task A5b — Hono API Surface: Work Orders & Streaming *(after A3 — needs the WorkOrder engine)*
+- [ ] A5b.1 Work-order claim endpoint.
+- [ ] A5b.2 `GET /api/sites/:id/stream` (SSE, §10.3).
+- [ ] A5b.3 Rate limiting for the work_claims endpoint class (§15.2).
 
 ### Task A6 — WordPress Plugin: Core & Safety (`packages/plugin`)
 - [ ] A6.1 `core/`: `Heartbeat.php`, `EventQueue.php`, `ErrorCapture.php`, `WorkOrderPoller.php`,
@@ -201,7 +238,10 @@ its `graphile_worker` schema against local Postgres alongside all 9 Drizzle-mana
 ## Track B — Intelligence, Detection & Verification
 
 ### Task B2 — Detection Ingestion Endpoints & Dedup
-*Depends on:* Task 1 (shared contracts). Can stub against Task A5's endpoints until they're real.
+*Depends on:* Task 1 (shared contracts + `packages/db` client) and the C1 auth stub. Start against
+the C1 stub immediately; swap to real HMAC verification once A5a.1 lands. Write directly against the
+`packages/db` Drizzle client for incident rows — no need to wait on A2's org/site repo layer, just
+scope every read/write by `site_id`/`org_id` by hand until A2.2/A2.3 formalize it as RLS.
 - [ ] B2.1 `POST /api/probes/anomaly`, PHP-fatal ingestion endpoint, heartbeat-drift Graphile job
   (§5.1, sources 1–4).
 - [ ] B2.2 WooCommerce failed-checkout ingestion (source 5).
@@ -222,8 +262,10 @@ its `graphile_worker` schema against local Postgres alongside all 9 Drizzle-mana
   output triggers a retry, not a crash.
 
 ### Task B5 — Diagnostic Method Stack: Tier 1 (Health Check Troubleshooting)
-*Depends on:* Task A6 (plugin core) for `HealthCheckBridge.php` integration — coordinate with Track A
-before starting this.
+*Depends on:* the C3 contract to start (mock the `HealthCheckBridge` HTTP response and build
+`binarySearchPluginConflict()`/the Playwright runner against it). Real integration with Task A6's
+actual `HealthCheckBridge.php` happens once A6.1 lands — coordinate with Track A before wiring that
+swap in.
 - [ ] B5.1 `HealthCheckBridge.php` — activates Health Check plugin via WP-CLI, session-isolated.
 - [ ] B5.2 `binarySearchPluginConflict()` (§6, Method 1) — O(log n) plugin conflict isolation.
 - [ ] B5.3 Local Playwright runner (concurrency = 1 per §3.3), admin-session navigation to failing URL.
@@ -240,7 +282,9 @@ before starting this.
   ties into Task A4's micro-snapshot.
 
 ### Task B7 — Fix Pipeline State Machine & Verification
-*Depends on:* Task A3 (policy engine) + Task A4 (dead man's switch) for the final promote/revert steps.
+*Depends on:* the C2 `PolicyDecision` stub to start — build and test the state machine's
+promote/revert branching against the always-`allow` stub. Real integration with Task A3's policy
+engine and Task A4's dead man's switch/snapshot executor happens once those land.
 - [ ] B7.1 §8.1 state machine as a Graphile Worker job chain (tier selection → fix apply → verify →
   promote/revert).
 - [ ] B7.2 `visualRegression()` with `pngjs`/`pixelmatch`, 0.05% diff threshold (§9.1).
