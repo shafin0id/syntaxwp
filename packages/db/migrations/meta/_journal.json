@@ -29,6 +29,13 @@
       "when": 1783547776805,
       "tag": "0003_site_auth_nonces",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783548226737,
+      "tag": "0004_plugin_inventory_unique_site_slug",
+      "breakpoints": true
     }
   ]
 }
