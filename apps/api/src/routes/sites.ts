@@ -13,6 +13,7 @@ import { encryptSiteSecret, generateSiteSecret, loadSiteSecretEncryptionKey } fr
 import { env } from "../env.js";
 import { requireSession, getOrgIdFromUser, type SessionVariables } from "../auth/middleware.js";
 import { verifySiteAuth, type SiteAuthVariables } from "../auth/site-auth.js";
+import { rateLimit } from "../middleware/rate-limit.js";
 
 const encryptionKey = loadSiteSecretEncryptionKey(env.SITE_SECRET_ENCRYPTION_KEY);
 
@@ -110,48 +111,58 @@ export const sitesRoutes = new Hono<{ Variables: SessionVariables & SiteAuthVari
 
     return c.json(serializeSite(site));
   })
-  .post("/:id/heartbeat", verifySiteAuth, async (c) => {
-    const site = c.get("site");
-    if (c.req.param("id") !== site.id) {
-      return c.json({ error: "site_id in body does not match :id in URL" }, 400);
-    }
+  .post(
+    "/:id/heartbeat",
+    verifySiteAuth,
+    rateLimit<{ Variables: SessionVariables & SiteAuthVariables }>("heartbeat", (c) => c.get("site").id),
+    async (c) => {
+      const site = c.get("site");
+      if (c.req.param("id") !== site.id) {
+        return c.json({ error: "site_id in body does not match :id in URL" }, 400);
+      }
 
-    const parsed = HeartbeatSchema.safeParse(c.get("siteAuthPayload"));
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten().fieldErrors }, 400);
-    }
+      const parsed = HeartbeatSchema.safeParse(c.get("siteAuthPayload"));
+      if (!parsed.success) {
+        return c.json({ error: parsed.error.flatten().fieldErrors }, 400);
+      }
 
-    await recordHeartbeat(db, site.id, {
-      wpVersion: parsed.data.wp_version,
-      executionPath: parsed.data.execution_path,
-    });
-    if (parsed.data.plugins) {
-      await upsertPluginInventory(db, site.id, parsed.data.plugins);
-    }
-
-    return c.json({ ok: true });
-  })
-  .post("/:id/events", verifySiteAuth, async (c) => {
-    const site = c.get("site");
-    if (c.req.param("id") !== site.id) {
-      return c.json({ error: "site_id in body does not match :id in URL" }, 400);
-    }
-
-    const parsed = EventsSchema.safeParse(c.get("siteAuthPayload"));
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten().fieldErrors }, 400);
-    }
-
-    for (const event of parsed.data.events) {
-      const { type, summary, ...evidence } = event;
-      await insertAuditLog(db, {
-        siteId: site.id,
-        eventType: type,
-        actor: "system",
-        summary: summary ?? `Plugin-reported event: ${type}`,
-        evidence,
+      await recordHeartbeat(db, site.id, {
+        wpVersion: parsed.data.wp_version,
+        executionPath: parsed.data.execution_path,
       });
-    }
+      if (parsed.data.plugins) {
+        await upsertPluginInventory(db, site.id, parsed.data.plugins);
+      }
 
-    return c.json({ ok: true, recorded: parsed.data.events.length });
-  });
+      return c.json({ ok: true });
+    },
+  )
+  .post(
+    "/:id/events",
+    verifySiteAuth,
+    rateLimit<{ Variables: SessionVariables & SiteAuthVariables }>("events", (c) => c.get("site").id),
+    async (c) => {
+      const site = c.get("site");
+      if (c.req.param("id") !== site.id) {
+        return c.json({ error: "site_id in body does not match :id in URL" }, 400);
+      }
+
+      const parsed = EventsSchema.safeParse(c.get("siteAuthPayload"));
+      if (!parsed.success) {
+        return c.json({ error: parsed.error.flatten().fieldErrors }, 400);
+      }
+
+      for (const event of parsed.data.events) {
+        const { type, summary, ...evidence } = event;
+        await insertAuditLog(db, {
+          siteId: site.id,
+          eventType: type,
+          actor: "system",
+          summary: summary ?? `Plugin-reported event: ${type}`,
+          evidence,
+        });
+      }
+
+      return c.json({ ok: true, recorded: parsed.data.events.length });
+    },
+  );
