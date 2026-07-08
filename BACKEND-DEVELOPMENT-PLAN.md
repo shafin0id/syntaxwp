@@ -188,13 +188,28 @@ local cycle verified: `supabase start` → `pnpm --filter @syntaxwp/db migrate` 
 green. Deferred (flagged, not blocking): introducing a dedicated non-superuser `syntaxwp_app` DB role
 for true least-privilege RLS enforcement — pre-production follow-up, see A2.3's migration comment.
 
-### Task A5a — Hono API Surface: Core & Auth *(do this right after A2 — Track B's B2 depends on it)*
-- [ ] A5a.1 Dual auth model: plugin-origin requests authenticated by site HMAC (replaces C1 stub),
+### Task A5a — Hono API Surface: Core & Auth *(do this right after A2 — Track B's B2 depends on it)* ✅ Done
+- [x] A5a.1 Dual auth model: plugin-origin requests authenticated by site HMAC (replaces C1 stub),
   dashboard-origin requests authenticated by user session.
-- [ ] A5a.2 Core endpoints: `POST /api/sites`, `GET /api/sites/:id`, `POST /api/sites/:id/heartbeat`,
+- [x] A5a.2 Core endpoints: `POST /api/sites`, `GET /api/sites/:id`, `POST /api/sites/:id/heartbeat`,
   `POST /api/sites/:id/events`.
-- [ ] A5a.3 Rate limiting middleware for the heartbeat/events/probe endpoint classes (§15.2;
+- [x] A5a.3 Rate limiting middleware for the heartbeat/events/probe endpoint classes (§15.2;
   work_claims class added in A5b).
+
+**Definition of done — verified 2026-07-09:** `verifySiteAuth` (`apps/api/src/auth/site-auth.ts`)
+validates `{site_id, timestamp, nonce, hmac}` against a Postgres-backed nonce ledger
+(`site_auth_nonces`, pruned every 5 min by a Graphile Worker job) — no C1 stub ever existed to swap,
+since Track B hasn't started building in parallel yet. `canonicalizeForSigning`/`signPayload`/
+`verifySignature` live in `packages/shared/src/hmac.ts`, built here (ahead of A3 in the plan doc's own
+sequence) since A5a needed them first; A3.1 will reuse rather than duplicate. `POST/GET /api/sites`
+(session-authed) resolve org via a new `app_metadata.org_id` Supabase Auth claim — flagged as an
+interim decision, §14.1 has no org-membership table. `POST /api/sites/:id/{heartbeat,events}`
+(site-HMAC-authed) update `sites`/`plugin_inventory` (new unique constraint + upsert) and write
+`audit_log` rows respectively. Rate limiting (`apps/api/src/middleware/rate-limit.ts`) is an in-memory
+per-process fixed-window counter — no Redis in this stack; `probe` class defined for Track B, wiring
+`work_claims` deferred to A5b.3. 27 tests passing across `hmac.test.ts`, `site-secret.test.ts` (from
+A2.4), `site-auth.test.ts`, `sites.test.ts`, `sites-heartbeat.test.ts`, `rate-limit.test.ts`, all
+against local Supabase Postgres.
 
 ### Task A3 — HMAC Work Order Engine & Policy Engine
 - [ ] A3.1 `WorkOrder` issuance: nonce, `issued_at`/`expires_at` (5 min window), HMAC-SHA256 signing
