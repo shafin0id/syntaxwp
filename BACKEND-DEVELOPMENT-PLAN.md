@@ -211,14 +211,29 @@ per-process fixed-window counter — no Redis in this stack; `probe` class defin
 A2.4), `site-auth.test.ts`, `sites.test.ts`, `sites-heartbeat.test.ts`, `rate-limit.test.ts`, all
 against local Supabase Postgres.
 
-### Task A3 — HMAC Work Order Engine & Policy Engine
-- [ ] A3.1 `WorkOrder` issuance: nonce, `issued_at`/`expires_at` (5 min window), HMAC-SHA256 signing
+### Task A3 — HMAC Work Order Engine & Policy Engine ✅ Done
+- [x] A3.1 `WorkOrder` issuance: nonce, `issued_at`/`expires_at` (5 min window), HMAC-SHA256 signing
   (§8.2).
-- [ ] A3.2 Graphile Worker job to expire/garbage-collect stale unclaimed work orders.
-- [ ] A3.3 Policy engine: `policyDecision()`, `ACTION_RISK_MAP`, allow/ask/block logic (§9.3),
+- [x] A3.2 Graphile Worker job to expire/garbage-collect stale unclaimed work orders.
+- [x] A3.3 Policy engine: `policyDecision()`, `ACTION_RISK_MAP`, allow/ask/block logic (§9.3),
   replaces the C2 stub. Unit tests covering every `(action, tier)` combination in the map, including
   the permanently blocked `run_arbitrary_command`.
-- [ ] A3.4 API endpoints for user approval flow (approve/decline a pending "ask" work order).
+- [x] A3.4 API endpoints for user approval flow (approve/decline a pending "ask" work order).
+
+**Definition of done — verified 2026-07-09:** `canonicalizeForSigning`/`signPayload`/`verifySignature`
+(`packages/shared/src/hmac.ts`, built early in A5a.1) underpin `signWorkOrder`/`verifyWorkOrderSignature`
+(`work-order-signing.ts`), validated against 3 cross-language golden fixture vectors that Task A6.2's
+PHPUnit suite must also reproduce. `id` doubles as the replay nonce — no separate column. `issueWorkOrder`
+(`packages/db`) computes the HMAC and persists `dead_mans_switch_ms` (new column, migration 0005).
+`work_order_expiry_sweep` runs every minute via Graphile Worker cron, only ever moving
+`pending`→`expired`. `policyDecision()` ported verbatim from §9.3 (including the `full_auto`/
+`some_access` branches being identical in the source spec — flagged, not "fixed"), with exhaustive
+42-case test coverage. `issueWorkOrderWithPolicy()` is the actual gate: `block` creates no row, `ask`
+issues as new status `awaiting_approval` (not yet claimable), `allow` issues as `pending`.
+`POST /api/work-orders/:id/{approve,decline}` (session-authed, org-scoped via `getWorkOrderForOrg`)
+atomically transition `awaiting_approval`→`pending`/`declined`, write an `audit_log` row each, and 409
+on an already-actioned order. 62 tests passing across `packages/shared` and `packages/db`, plus 24 in
+`apps/api` covering the full route/auth/audit chain against local Supabase Postgres.
 
 ### Task A4 — Dead Man's Switch & Snapshot/Revert
 - [ ] A4.1 `armDeadMansSwitch` / `disarmDeadMansSwitch` as Graphile Worker jobs (§9.2).
