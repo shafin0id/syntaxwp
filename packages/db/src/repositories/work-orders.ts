@@ -1,8 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, lt } from "drizzle-orm";
-import { signWorkOrder, type RiskLevel, type WorkOrder, type WorkOrderAction } from "@syntaxwp/shared";
+import {
+  policyDecision,
+  signWorkOrder,
+  WORK_ORDER_STATUSES,
+  type PermissionTier,
+  type PolicyDecision,
+  type RiskLevel,
+  type WorkOrder,
+  type WorkOrderAction,
+} from "@syntaxwp/shared";
 import type { Database } from "../client.js";
-import { workOrders } from "../schema/index.js";
+import { sites, workOrders } from "../schema/index.js";
 
 export type WorkOrderRow = typeof workOrders.$inferSelect;
 
@@ -19,6 +28,13 @@ export interface IssueWorkOrderInput {
   deadMansSwitchMs: number;
   siteSecret: string; // plaintext — caller decrypts via A2.4's decryptSiteSecret first
   expiresInMs?: number;
+  // Defaults to "pending" (immediately claimable). issueWorkOrderWithPolicy
+  // below is what actually decides this based on §9.3's policyDecision —
+  // most callers should use that instead of calling issueWorkOrder directly
+  // with a status, unless they have their own reason to bypass the policy
+  // gate (there currently are none; this parameter exists so the policy
+  // wrapper doesn't need a second, near-duplicate insert implementation).
+  initialStatus?: (typeof WORK_ORDER_STATUSES)[number];
 }
 
 export interface IssuedWorkOrder {
@@ -67,10 +83,86 @@ export async function issueWorkOrder(
       deadMansSwitchMs: input.deadMansSwitchMs,
       issuedAt: new Date(issuedAtMs),
       expiresAt: new Date(expiresAtMs),
+      ...(input.initialStatus ? { status: input.initialStatus } : {}),
     })
     .returning();
 
   return { row, wirePayload: { ...unsigned, hmac } };
+}
+
+export type IssueWorkOrderWithPolicyResult =
+  | { decision: Extract<PolicyDecision, "allow" | "ask">; workOrder: IssuedWorkOrder }
+  | { decision: Extract<PolicyDecision, "block">; workOrder: undefined };
+
+// The policy gate (A3.3) sitting between "something wants to issue a work
+// order" and "a work order exists": every issuance that should be subject
+// to §9.3's tier enforcement goes through this, not issueWorkOrder directly.
+// A "block" decision never creates a row at all — there is nothing to
+// approve, decline, or audit for an action the system will never perform,
+// regardless of who's asking. An "ask" decision still signs and persists
+// the work order (so its evidence/reasoning exists for the approval UI to
+// show), just starting in "awaiting_approval" instead of "pending" so the
+// plugin's claim endpoint (A5b.1) can't pick it up until a user approves it.
+export async function issueWorkOrderWithPolicy(
+  db: Database,
+  input: IssueWorkOrderInput & { tier: PermissionTier },
+): Promise<IssueWorkOrderWithPolicyResult> {
+  const decision = policyDecision(input.action, input.tier);
+  if (decision === "block") {
+    return { decision, workOrder: undefined };
+  }
+
+  const issued = await issueWorkOrder(db, {
+    ...input,
+    initialStatus: decision === "ask" ? "awaiting_approval" : "pending",
+  });
+  return { decision, workOrder: issued };
+}
+
+// Joins through sites to enforce that the requesting dashboard user's org
+// actually owns the site this work order targets — mirrors
+// getSiteByIdForOrg's org-scoping rationale in repositories/sites.ts.
+export async function getWorkOrderForOrg(
+  db: Database,
+  workOrderId: string,
+  orgId: string,
+): Promise<WorkOrderRow | undefined> {
+  const [row] = await db
+    .select({ workOrder: workOrders })
+    .from(workOrders)
+    .innerJoin(sites, eq(workOrders.siteId, sites.id))
+    .where(and(eq(workOrders.id, workOrderId), eq(sites.orgId, orgId)));
+  return row?.workOrder;
+}
+
+// Both approve/decline are conditioned on the row currently being
+// "awaiting_approval" in the UPDATE's WHERE clause — this makes the
+// transition atomic (no read-then-write race between two approval clicks)
+// and means an undefined return unambiguously signals "not in a state this
+// operation applies to" (already approved/declined/expired/claimed), which
+// the route layer turns into a 409, not a silent no-op.
+export async function approveWorkOrder(
+  db: Database,
+  workOrderId: string,
+): Promise<WorkOrderRow | undefined> {
+  const [row] = await db
+    .update(workOrders)
+    .set({ status: "pending" })
+    .where(and(eq(workOrders.id, workOrderId), eq(workOrders.status, "awaiting_approval")))
+    .returning();
+  return row;
+}
+
+export async function declineWorkOrder(
+  db: Database,
+  workOrderId: string,
+): Promise<WorkOrderRow | undefined> {
+  const [row] = await db
+    .update(workOrders)
+    .set({ status: "declined" })
+    .where(and(eq(workOrders.id, workOrderId), eq(workOrders.status, "awaiting_approval")))
+    .returning();
+  return row;
 }
 
 export async function getWorkOrderById(db: Database, id: string): Promise<WorkOrderRow | undefined> {

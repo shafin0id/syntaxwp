@@ -4,6 +4,7 @@ import { env } from "./env.js";
 import { healthRoute } from "./routes/health.js";
 import { devRoutes } from "./routes/dev.js";
 import { sitesRoutes } from "./routes/sites.js";
+import { workOrdersRoutes } from "./routes/work-orders.js";
 
 export function createApp() {
   const app = new Hono();
@@ -13,5 +14,6 @@ export function createApp() {
   app.route("/", healthRoute);
   app.route("/api/dev", devRoutes);
   app.route("/api/sites", sitesRoutes);
+  app.route("/api/work-orders", workOrdersRoutes);
   return app;
 }

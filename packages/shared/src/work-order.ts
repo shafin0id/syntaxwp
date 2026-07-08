@@ -16,12 +16,19 @@ export const WorkOrderSchema = z.object({
 });
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;
 
+// "awaiting_approval" and "declined" added in A3.4 — a policyDecision of
+// "ask" (§9.3) issues the work order (it's signed and exists) but it isn't
+// claimable by the plugin until a dashboard user approves it, moving it to
+// "pending" the same as an "allow"-decision order. "declined" is terminal:
+// the signed order still exists (for audit purposes) but is never claimable.
 export const WORK_ORDER_STATUSES = [
+  "awaiting_approval",
   "pending",
   "claimed",
   "executed",
   "reverted",
   "expired",
+  "declined",
 ] as const;
 export const WorkOrderStatusSchema = z.enum(WORK_ORDER_STATUSES);
 export type WorkOrderStatus = z.infer<typeof WorkOrderStatusSchema>;

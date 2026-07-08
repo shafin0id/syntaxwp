@@ -12,7 +12,10 @@ export const workOrders = pgTable("work_orders", {
   action: text("action").notNull(),
   target: text("target"),
   parameters: jsonb("parameters"),
-  status: text("status").notNull().default("pending"), // pending|claimed|executed|reverted|expired
+  // awaiting_approval|pending|claimed|executed|reverted|expired|declined —
+  // see WORK_ORDER_STATUSES (packages/shared/src/work-order.ts) for what
+  // each means and the A3.4 comment there on awaiting_approval/declined.
+  status: text("status").notNull().default("pending"),
   risk: text("risk").notNull(),
   hmac: text("hmac").notNull(),
   // How long the plugin's dead man's switch waits before auto-reverting if
