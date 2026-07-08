@@ -357,9 +357,9 @@ pnpm test
   scratch, then re-run migrate + seed (§4). Local data is disposable by design; never worry about
   losing it.
 - **Browser fetch from the dashboard to the API fails with a CORS error, but `curl` works fine** —
-  `curl` doesn't enforce CORS, so this only shows up in an actual browser. `apps/api/src/app.ts`
-  hardcodes `origin: "http://localhost:3000"` for now; if you're running the dashboard on a different
-  port or host, update that origin (Task A5 will make it configurable properly).
+  `curl` doesn't enforce CORS, so this only shows up in an actual browser. `apps/api` reads the
+  allowed origin from `DASHBOARD_ORIGIN` (defaults to `http://localhost:3000`, Task A5a.1) — set it in
+  `apps/api/.env` if you're running the dashboard on a different port or host.
 - **`drizzle-kit generate` fails with `Cannot find module './orgs.js'` or similar** — you're probably
   invoking `drizzle-kit` directly instead of through the package script. Always use
   `pnpm --filter @syntaxwp/db generate`, which runs it through `tsx` — plain `drizzle-kit generate`
