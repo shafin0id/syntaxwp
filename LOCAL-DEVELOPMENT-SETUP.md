@@ -83,6 +83,12 @@ R2_ENDPOINT=http://localhost:9000
 # Shared secret the (future) local Cloudflare Worker probe uses to call this API
 CF_WORKER_SECRET=dev-local-secret-change-me
 
+# AES-256 key (base64, 32 raw bytes) encrypting sites.site_secret_ciphertext at
+# rest (Task A2.4) — generate your own, and use the SAME value here and in
+# packages/db/.env (the seed script encrypts with it, apps/api decrypts with it):
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+SITE_SECRET_ENCRYPTION_KEY=
+
 # Reserved for Track B (LLM router) / billing — optional, nothing reads these yet.
 # See §3.1 for how to get free-tier keys once you're on a task that needs them.
 DEEPSEEK_API_KEY=
@@ -93,8 +99,8 @@ STRIPE_WEBHOOK_SECRET=
 ```
 
 `apps/api` fails fast at startup (a clear Zod error, not a silent `undefined`) if `DATABASE_URL`,
-`SUPABASE_*`, `R2_*`, or `CF_WORKER_SECRET` are missing — the LLM/billing keys are genuinely optional
-right now since no Task 1 code reads them.
+`SUPABASE_*`, `R2_*`, `CF_WORKER_SECRET`, or `SITE_SECRET_ENCRYPTION_KEY` are missing — the
+LLM/billing keys are genuinely optional right now since no task reads them yet.
 
 ### `apps/dashboard/.env.local`
 
@@ -111,6 +117,10 @@ load their own env file:
 
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+# Must match apps/api's value above — the seed script encrypts the dev
+# site_secret with this key (Task A2.4).
+SITE_SECRET_ENCRYPTION_KEY=
 ```
 
 ### `apps/probes/.dev.vars` (Wrangler local dev vars — once `apps/probes` exists, Task B3)

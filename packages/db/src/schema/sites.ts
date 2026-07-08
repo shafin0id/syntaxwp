@@ -11,7 +11,9 @@ export const sites = pgTable("sites", {
   executionPath: text("execution_path"), // 'wp7_native' | 'legacy_outbound'
   permissionTier: text("permission_tier").notNull().default("some_access"),
   wooEnabled: boolean("woo_enabled").default(false),
-  siteSecret: text("site_secret").notNull(), // for HMAC signing
+  // AES-256-GCM envelope (see packages/shared/src/site-secret.ts), not
+  // plaintext — decrypted on demand to verify plugin HMAC signatures (A2.4).
+  siteSecretCiphertext: text("site_secret_ciphertext").notNull(),
   lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
   healthScore: integer("health_score"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

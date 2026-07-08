@@ -23,7 +23,7 @@ describe("audit_log append-only enforcement", () => {
     const [org] = await db.insert(orgs).values({ name: "audit-log-test-org" }).returning();
     const [site] = await db
       .insert(sites)
-      .values({ orgId: org.id, url: "http://example.test", siteSecret: "test-secret" })
+      .values({ orgId: org.id, url: "http://example.test", siteSecretCiphertext: "test-secret" })
       .returning();
 
     const entry = await insertAuditLog(db, {
