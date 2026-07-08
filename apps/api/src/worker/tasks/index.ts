@@ -1,4 +1,5 @@
 import type { Task } from "graphile-worker";
+import { siteAuthNoncePrune } from "./site-auth-nonce-prune.js";
 
 // Placeholders only — real implementations land in Task A4
 // (dead_mans_switch_fire), Task B9 (vulnerability_feed_sync), and Task B2
@@ -20,4 +21,5 @@ export const taskList = {
   dead_mans_switch_fire: deadMansSwitchFire,
   vulnerability_feed_sync: vulnerabilityFeedSync,
   heartbeat_drift_check: heartbeatDriftCheck,
+  site_auth_nonce_prune: siteAuthNoncePrune,
 };

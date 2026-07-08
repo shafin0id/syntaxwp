@@ -1,0 +1,7 @@
+# Graphile Worker cron schedule (apps/api/src/worker/index.ts). Default path
+# per graphile-worker's own convention: <cwd>/crontab, i.e. this file, since
+# `pnpm --filter @syntaxwp/api worker` runs with apps/api as cwd.
+#
+# Prune replay-protection nonces older than their 5-minute validity window
+# (A5a.1) — nothing ever needs to read a row this old again.
+*/5 * * * * site_auth_nonce_prune
