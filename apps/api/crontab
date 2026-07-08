@@ -5,3 +5,8 @@
 # Prune replay-protection nonces older than their 5-minute validity window
 # (A5a.1) — nothing ever needs to read a row this old again.
 */5 * * * * site_auth_nonce_prune
+
+# Garbage-collect work orders nobody claimed within their 5-minute window
+# (A3.2, §8.2) — every minute, since a stale claimable-looking order sitting
+# around for up to 5 extra minutes is worse than the cost of checking often.
+* * * * * work_order_expiry_sweep
