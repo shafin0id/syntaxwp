@@ -1,0 +1,58 @@
+[
+  {
+    "description": "basic flush_cache work order, no parameters, no target",
+    "secret": "test-secret-key-for-fixture-vectors",
+    "payload": {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "site_id": "22222222-2222-4222-8222-222222222222",
+      "action": "flush_cache",
+      "target": "",
+      "parameters": {},
+      "issued_at": 1751234567,
+      "expires_at": 1751234867,
+      "dead_mans_switch_ms": 30000
+    },
+    "expectedCanonicalJson": "{\"action\":\"flush_cache\",\"dead_mans_switch_ms\":30000,\"expires_at\":1751234867,\"id\":\"11111111-1111-4111-8111-111111111111\",\"issued_at\":1751234567,\"parameters\":{},\"site_id\":\"22222222-2222-4222-8222-222222222222\",\"target\":\"\"}",
+    "expectedHmac": "61c1245aac82ae8b10a3335f4d81dd2574def87ba4df3ab5f288ab50deadd08d"
+  },
+  {
+    "description": "update_plugin with nested parameters, proving deep key sort",
+    "secret": "another-test-secret",
+    "payload": {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "site_id": "44444444-4444-4444-8444-444444444444",
+      "action": "update_plugin",
+      "target": "woocommerce",
+      "parameters": {
+        "to_version": "9.2.0",
+        "backup": {
+          "enabled": true,
+          "type": "full"
+        }
+      },
+      "issued_at": 1751234567,
+      "expires_at": 1751234867,
+      "dead_mans_switch_ms": 60000
+    },
+    "expectedCanonicalJson": "{\"action\":\"update_plugin\",\"dead_mans_switch_ms\":60000,\"expires_at\":1751234867,\"id\":\"33333333-3333-4333-8333-333333333333\",\"issued_at\":1751234567,\"parameters\":{\"backup\":{\"enabled\":true,\"type\":\"full\"},\"to_version\":\"9.2.0\"},\"site_id\":\"44444444-4444-4444-8444-444444444444\",\"target\":\"woocommerce\"}",
+    "expectedHmac": "40074d7411c0e19afcb41fbfcc93009c97ee6d975e00d5bd47cc87f66a26a94e"
+  },
+  {
+    "description": "unicode and slash characters in target, proving JSON escaping matches PHP's JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES flags",
+    "secret": "unicode-test-secret",
+    "payload": {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "site_id": "66666666-6666-4666-8666-666666666666",
+      "action": "update_option",
+      "target": "site_name",
+      "parameters": {
+        "value": "Café/Bäckerei — 日本語"
+      },
+      "issued_at": 1751234567,
+      "expires_at": 1751234867,
+      "dead_mans_switch_ms": 15000
+    },
+    "expectedCanonicalJson": "{\"action\":\"update_option\",\"dead_mans_switch_ms\":15000,\"expires_at\":1751234867,\"id\":\"55555555-5555-4555-8555-555555555555\",\"issued_at\":1751234567,\"parameters\":{\"value\":\"Café/Bäckerei — 日本語\"},\"site_id\":\"66666666-6666-4666-8666-666666666666\",\"target\":\"site_name\"}",
+    "expectedHmac": "b652297a3d02076ca787f6143133e4ebc17fd1192a3db7d29f86990309ff2b91"
+  }
+]
