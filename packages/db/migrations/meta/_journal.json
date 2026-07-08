@@ -36,6 +36,13 @@
       "when": 1783548226737,
       "tag": "0004_plugin_inventory_unique_site_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783548642072,
+      "tag": "0005_work_orders_dead_mans_switch_ms",
+      "breakpoints": true
     }
   ]
 }

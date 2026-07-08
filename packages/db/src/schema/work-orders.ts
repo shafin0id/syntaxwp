@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, jsonb, integer, timestamp } from "drizzle-orm/pg-core";
 import { sites } from "./sites.js";
 import { incidents } from "./incidents.js";
 
@@ -15,6 +15,11 @@ export const workOrders = pgTable("work_orders", {
   status: text("status").notNull().default("pending"), // pending|claimed|executed|reverted|expired
   risk: text("risk").notNull(),
   hmac: text("hmac").notNull(),
+  // How long the plugin's dead man's switch waits before auto-reverting if
+  // no "still healthy" confirmation arrives after executing this action
+  // (§9.2, A4.1) — part of the signed wire payload (WorkOrderSchema), so it
+  // must be persisted alongside the other signed fields, not derived later.
+  deadMansSwitchMs: integer("dead_mans_switch_ms").notNull(),
   issuedAt: timestamp("issued_at", { withTimezone: true }).defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   claimedAt: timestamp("claimed_at", { withTimezone: true }),

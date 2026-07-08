@@ -1,0 +1,1 @@
+ALTER TABLE "work_orders" ADD COLUMN "dead_mans_switch_ms" integer NOT NULL;
