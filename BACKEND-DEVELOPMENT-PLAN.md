@@ -167,12 +167,26 @@ same pattern already used for B6.2's mocked ephemeral container below.
 ahead of A3/A4) because Track B's B2 depends on it for site-authenticated ingestion — see the
 "Revised after review" note above.
 
-### Task A2 — Data Layer & Multi-Tenancy
-- [ ] A2.1 CRUD repositories for `orgs`/`sites` (§14.1).
-- [ ] A2.2 Row-level isolation: every query scoped by `site_id`/`org_id` (§14.2).
-- [ ] A2.3 Postgres RLS policy making `audit_log` append-only (no UPDATE/DELETE, enforced at the DB
+### Task A2 — Data Layer & Multi-Tenancy ✅ Done
+- [x] A2.1 CRUD repositories for `orgs`/`sites` (§14.1).
+- [x] A2.2 Row-level isolation: every query scoped by `site_id`/`org_id` (§14.2).
+- [x] A2.3 Postgres RLS policy making `audit_log` append-only (no UPDATE/DELETE, enforced at the DB
   level, not just app level) (§14.2).
-- [ ] A2.4 Site secret generation + encrypted-at-rest storage (§15.3).
+- [x] A2.4 Site secret generation + encrypted-at-rest storage (§15.3).
+
+**Definition of done — verified 2026-07-09:** `packages/db/src/repositories/{orgs,sites,audit-log}.ts`
+scope every query by `orgId`/`siteId` except the two lookups that structurally can't (org creation;
+`getSiteById` for site-HMAC auth resolution, documented inline). `audit_log` append-only is enforced by
+a `BEFORE UPDATE OR DELETE` trigger (migration `0001_audit_log_append_only.sql`) — RLS alone was
+verified insufficient since local/deployed `DATABASE_URL` connects as the Postgres superuser, which
+bypasses RLS unconditionally; RLS+FORCE is layered on as defense-in-depth for a future non-superuser
+role. `audit-log.test.ts` proves rejection via both raw SQL and the Drizzle query builder — 5/5 passing
+against local Supabase Postgres. `sites.site_secret_ciphertext` stores an AES-256-GCM envelope
+(`packages/shared/src/site-secret.ts`), keyed by `SITE_SECRET_ENCRYPTION_KEY`; `site-secret.test.ts`
+covers round-trip, IV uniqueness, wrong-key rejection, and key-loading validation — 6/6 passing. Full
+local cycle verified: `supabase start` → `pnpm --filter @syntaxwp/db migrate` → `seed` → `test`, all
+green. Deferred (flagged, not blocking): introducing a dedicated non-superuser `syntaxwp_app` DB role
+for true least-privilege RLS enforcement — pre-production follow-up, see A2.3's migration comment.
 
 ### Task A5a — Hono API Surface: Core & Auth *(do this right after A2 — Track B's B2 depends on it)*
 - [ ] A5a.1 Dual auth model: plugin-origin requests authenticated by site HMAC (replaces C1 stub),
