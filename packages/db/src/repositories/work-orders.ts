@@ -182,3 +182,22 @@ export async function expireStaleWorkOrders(db: Database): Promise<number> {
     .returning({ id: workOrders.id });
   return expired.length;
 }
+
+// A4.3's revert executor calls this once it has done what it can to undo an
+// executed work order. Guarded on the row currently being "executed" — the
+// same atomic-transition pattern as approve/decline above — so a work order
+// that was never executed can't be marked reverted, and one already
+// reverted (e.g. a retried dead-man's-switch fire racing a disarm) can't be
+// "re-reverted" and double-issue a corrective work order.
+export async function markWorkOrderReverted(
+  db: Database,
+  workOrderId: string,
+  result: Record<string, unknown>,
+): Promise<WorkOrderRow | undefined> {
+  const [row] = await db
+    .update(workOrders)
+    .set({ status: "reverted", result })
+    .where(and(eq(workOrders.id, workOrderId), eq(workOrders.status, "executed")))
+    .returning();
+  return row;
+}
