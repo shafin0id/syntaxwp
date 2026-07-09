@@ -10,7 +10,8 @@
  * Domain Path: languages
  *
  * Requires at least: 7
- * Requires PHP:      8.1
+ * Tested up to:      7.0
+ * Requires PHP:      7.4
  *
  * @package SyntaxWP\Plugin
  */
