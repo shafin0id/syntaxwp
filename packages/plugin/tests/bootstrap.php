@@ -18,3 +18,10 @@ WP_Mock::bootstrap();
 if (!defined('DB_NAME')) {
     define('DB_NAME', 'wordpress_test');
 }
+
+// Tells mu-watchdog/SyntaxWPWatchdog.php not to auto-register itself when
+// this test suite requires that file directly (it's not PSR-4 autoloaded
+// — see that file's own docblock for why) — tests instantiate
+// SyntaxWP_Watchdog themselves instead of relying on the file's own
+// bottom-of-file side effect.
+define('SYNTAXWP_PLUGIN_TESTING', true);
