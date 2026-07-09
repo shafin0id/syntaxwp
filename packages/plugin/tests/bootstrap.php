@@ -11,3 +11,10 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
 WP_Mock::bootstrap();
+
+// Real wp-config.php constants WP_Mock doesn't define on its own — needed
+// by anything (Heartbeat's DB-size query) that reads them directly rather
+// than through a mockable function call.
+if (!defined('DB_NAME')) {
+    define('DB_NAME', 'wordpress_test');
+}

@@ -3,6 +3,12 @@
   "description": "SyntaxWP WordPress plugin — heartbeat/event reporting, signed work-order execution, and safety controls (Task A6/A7).",
   "type": "wordpress-plugin",
   "license": "proprietary",
+  "authors": [
+    {
+      "name": "Tanmay Kirtania",
+      "email": "jktanmay@gmail.com"
+    }
+  ],
   "require": {
     "php": ">=8.1"
   },

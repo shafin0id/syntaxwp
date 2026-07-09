@@ -20,15 +20,14 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// Store base file/dir locations before anything else needs them.
-define( 'SYNTAXWP_PLUGIN_FILE', __FILE__ );
-define( 'SYNTAXWP_PLUGIN_DIR', __DIR__ );
-define( 'SYNTAXWP_PLUGIN_VERSION', '0.1.0' );
-
 // Composer's PSR-4 autoloader covers every class under core/, safety/,
 // wp7/, mu-watchdog/ (SyntaxWP\Plugin\...) — no separate spl_autoload_register
 // needed on top of it.
 require_once __DIR__ . '/vendor/autoload.php';
+
+use SyntaxWP\Plugin\Core\CapabilityRouter;
+use SyntaxWP\Plugin\Core\EventQueue;
+use SyntaxWP\Plugin\Core\Heartbeat;
 
 /**
  * Main plugin class — bootstraps the plugin as a singleton, the same
@@ -38,7 +37,8 @@ require_once __DIR__ . '/vendor/autoload.php';
  * construction, one module at a time as A6/A7 land, not routing requests
  * itself.
  *
- * @since 0.1.0
+ * @since  0.1.0
+ * @author Tanmay Kirtania <jktanmay@gmail.com>
  */
 #[\AllowDynamicProperties]
 class SyntaxWP {
@@ -68,22 +68,48 @@ class SyntaxWP {
     }
 
     /**
-     * Constructs the plugin, wiring up its modules. Private — always go
-     * through instance() so there's only ever one of these per request.
+     * Registers this plugin's hook callbacks. Private — always go through
+     * instance() so there's only ever one of these per request. Does no
+     * work itself beyond registering hooks: constants and module wiring
+     * both happen later, when `plugins_loaded` actually fires, not here.
      *
      * @since 0.1.0
      */
     private function __construct() {
-        $this->init_hooks();
+        add_action( 'plugins_loaded', [ $this, 'define_constants' ], 1 );
+        add_action( 'plugins_loaded', [ $this, 'init_hooks' ] );
     }
 
     /**
-     * Constructs each module. Empty for now — modules are added here one
-     * at a time as A6.1/A6.2/A6.3 land, not all at once.
+     * Defines plugin-wide constants. Hooked to `plugins_loaded` at
+     * priority 1 (ahead of init_hooks(), which may eventually depend on
+     * them) rather than defined at file-load time — every constant this
+     * plugin exposes goes through the same hook-registration path as
+     * everything else it does, not a bare top-level define() floating
+     * outside the class.
      *
      * @since 0.1.0
      */
-    private function init_hooks() {
+    public function define_constants() {
+        define( 'SYNTAXWP_PLUGIN_FILE', __FILE__ );
+        define( 'SYNTAXWP_PLUGIN_DIR', __DIR__ );
+        define( 'SYNTAXWP_PLUGIN_VERSION', '0.1.0' );
+    }
+
+    /**
+     * Constructs each module, one at a time as A6.1/A6.2/A6.3 land — not
+     * all at once. Each module registers its own WordPress hooks in its
+     * own constructor/registerHooks() call; this method's only job is
+     * wiring the construction graph (e.g. Heartbeat needs a
+     * CapabilityRouter), not routing requests itself.
+     *
+     * @since 0.1.0
+     */
+    public function init_hooks() {
+        $capability_router = CapabilityRouter::forCurrentEnvironment();
+
+        ( new Heartbeat( $capability_router ) )->registerHooks();
+        ( new EventQueue() )->registerHooks();
     }
 }
 
