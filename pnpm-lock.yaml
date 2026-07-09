@@ -48,6 +48,9 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.706.0
+        version: 3.1079.0
       '@types/node':
         specifier: ^24.0.0
         version: 24.10.4

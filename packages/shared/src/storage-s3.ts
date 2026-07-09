@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { ObjectStorageClient } from "./storage.js";
@@ -39,6 +39,9 @@ export function createS3StorageClient(config: S3StorageConfig): ObjectStorageCli
       return getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucket, Key: key }), {
         expiresIn: expiresInSeconds,
       });
+    },
+    async deleteObject(key) {
+      await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
     },
   };
 }

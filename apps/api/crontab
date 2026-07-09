@@ -10,3 +10,8 @@
 # (A3.2, §8.2) — every minute, since a stale claimable-looking order sitting
 # around for up to 5 extra minutes is worse than the cost of checking often.
 * * * * * work_order_expiry_sweep
+
+# Delete snapshot rows (and their R2/MinIO blobs) past the 30-day retention
+# window (A4.4, §14.2). Once daily, off-peak — a 30-day window doesn't need
+# the frequent checking the shorter-lived sweeps above do.
+0 3 * * * snapshot_retention_sweep

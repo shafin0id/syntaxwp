@@ -1,6 +1,7 @@
 import type { Task } from "graphile-worker";
 import { deadMansSwitchFire } from "./dead-mans-switch.js";
 import { siteAuthNoncePrune } from "./site-auth-nonce-prune.js";
+import { snapshotRetentionSweep } from "./snapshot-retention.js";
 import { workOrderExpirySweep } from "./work-order-expiry-sweep.js";
 
 // Placeholders only — real implementations land in Task B9
@@ -21,4 +22,5 @@ export const taskList = {
   heartbeat_drift_check: heartbeatDriftCheck,
   site_auth_nonce_prune: siteAuthNoncePrune,
   work_order_expiry_sweep: workOrderExpirySweep,
+  snapshot_retention_sweep: snapshotRetentionSweep,
 };
