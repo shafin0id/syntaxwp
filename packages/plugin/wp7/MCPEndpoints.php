@@ -4,21 +4,32 @@ declare(strict_types=1);
 
 namespace SyntaxWP\Plugin\Wp7;
 
+use SyntaxWP\Plugin\Core\Hmac;
+
 /**
- * Exposes MCP endpoints, localhost only — not public (§4.1, §4.2). WP has
- * no built-in binding restriction that keeps a REST route request-local;
- * the `REMOTE_ADDR` check in isLoopbackRequest() is the actual enforcement
- * point.
+ * Exposes MCP endpoints, localhost only — not public (§4.1, §4.2).
+ *
+ * Loopback-checking `REMOTE_ADDR` alone is NOT sufficient authentication
+ * and must never be the only gate on this endpoint: on the extremely
+ * common deployment shape of nginx reverse-proxying to PHP-FPM on the
+ * *same* host, PHP sees `REMOTE_ADDR = 127.0.0.1` for every single
+ * external request — "loopback" carries no trust in that topology at all.
+ * (Caught by a background security review before this shipped.) The real
+ * authentication is the same site-secret HMAC signature every other
+ * plugin-originated request in this system already uses (Hmac.php,
+ * WorkOrderValidator's own hmac/expiry/nonce checks) — the loopback check
+ * is kept as defense-in-depth on top of that, not instead of it.
  *
  * NOTE: the route shape here (a single POST /syntaxwp/v1/mcp/execute
- * endpoint taking `{ability, input}` and returning ActionExecutor's result
- * directly) is a best-effort JSON-RPC-ish surface, not a confirmed match
- * to whatever transport WP7's real MCP integration expects abilities to
- * be called through — verify against the actual MCP adapter's conventions
- * before this ships. What's actually confirmed: the loopback enforcement
- * itself, and the ability-name -> whitelisted-action mapping (strip the
- * `syntaxwp/` prefix, hyphens to underscores — the exact inverse of
- * AbilitiesRegistrar's own slug naming).
+ * endpoint taking `{ability, input, timestamp, nonce, hmac}` and returning
+ * ActionExecutor's result directly) is a best-effort JSON-RPC-ish surface,
+ * not a confirmed match to whatever transport WP7's real MCP integration
+ * expects abilities to be called through — verify against the actual MCP
+ * adapter's conventions before this ships. What's actually confirmed: the
+ * HMAC/replay verification itself, and the ability-name ->
+ * whitelisted-action mapping (strip the `syntaxwp/` prefix, hyphens to
+ * underscores — the exact inverse of AbilitiesRegistrar's own slug
+ * naming).
  *
  * @author Tanmay Kirtania <jktanmay@gmail.com>
  */
@@ -26,6 +37,10 @@ final class MCPEndpoints
 {
     private const REST_NAMESPACE = 'syntaxwp/v1';
     private const ABILITY_PREFIX = 'syntaxwp/';
+    // Same replay window as A5a.1's site-auth (apps/api/src/auth/site-auth.ts)
+    // — one convention for "how stale can a signed request be" everywhere
+    // this plugin signs something.
+    private const REPLAY_WINDOW_SECONDS = 300;
 
     private ActionExecutor $executor;
 
@@ -44,8 +59,22 @@ final class MCPEndpoints
         register_rest_route(self::REST_NAMESPACE, '/mcp/execute', [
             'methods' => 'POST',
             'callback' => [$this, 'handleExecute'],
-            'permission_callback' => [$this, 'isLoopbackRequest'],
+            'permission_callback' => [$this, 'authorizeRequest'],
         ]);
+    }
+
+    /**
+     * @param mixed $request
+     */
+    public function authorizeRequest($request): bool
+    {
+        if (!$this->isLoopbackRequest()) {
+            return false;
+        }
+
+        $params = method_exists($request, 'get_json_params') ? (array) $request->get_json_params() : [];
+
+        return $this->verifySignedRequest($params);
     }
 
     public function isLoopbackRequest(): bool
@@ -56,10 +85,52 @@ final class MCPEndpoints
     }
 
     /**
+     * @param array<string, mixed> $params
+     */
+    public function verifySignedRequest(array $params): bool
+    {
+        $secret = get_option('syntaxwp_site_secret');
+        if (!$secret) {
+            return false; // not yet connected — nothing to verify against
+        }
+
+        if (
+            !isset($params['hmac'], $params['timestamp'], $params['nonce'])
+            || !is_string($params['hmac'])
+        ) {
+            return false;
+        }
+
+        $timestamp = (int) $params['timestamp'];
+        if (abs(time() - $timestamp) > self::REPLAY_WINDOW_SECONDS) {
+            return false;
+        }
+
+        $nonce = (string) $params['nonce'];
+        if (get_transient('syntaxwp_mcp_nonce_' . $nonce)) {
+            return false;
+        }
+
+        $signedPayload = $params;
+        $receivedHmac = $signedPayload['hmac'];
+        unset($signedPayload['hmac']);
+
+        if (!Hmac::verify($signedPayload, (string) $secret, $receivedHmac)) {
+            return false;
+        }
+
+        set_transient('syntaxwp_mcp_nonce_' . $nonce, 1, self::REPLAY_WINDOW_SECONDS);
+
+        return true;
+    }
+
+    /**
      * Thin REST-facing wrapper — extracts plain params and hands off to
      * executeAbility() immediately, so the actual dispatch logic is
      * testable with plain arrays instead of needing a real WP_REST_Request
-     * instance.
+     * instance. Authentication has already happened in authorizeRequest()
+     * (WP calls permission_callback before the route's own callback) —
+     * this method only ever runs for an already-verified request.
      *
      * @param mixed $request
      * @return array<string, mixed>
