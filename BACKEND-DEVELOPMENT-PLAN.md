@@ -327,11 +327,48 @@ bug before it shipped: the original `composer.json` autoload map let Composer de
 from the namespace and silently resolve it against the real `core/Hmac.php` only because macOS's
 filesystem is case-insensitive — would have 500'd on any case-sensitive host. 66 tests passing.
 
-### Task A7 — WordPress Plugin: Dual Execution Path
-- [ ] A7.1 `wp7/`: `AbilitiesRegistrar.php`, `MCPEndpoints.php` (localhost-only), `ActionExecutor.php`
+### Task A7 — WordPress Plugin: Dual Execution Path ✅ Done
+- [x] A7.1 `wp7/`: `AbilitiesRegistrar.php`, `MCPEndpoints.php` (localhost-only), `ActionExecutor.php`
   (§4.1, §4.2).
-- [ ] A7.2 Legacy outbound polling path completion + integration test against Task A5 endpoints.
-- [ ] A7.3 `CapabilityRouter.php` version-detection logic: routes to WP7 native path vs. legacy path.
+- [x] A7.2 Legacy outbound polling path completion + integration test against Task A5 endpoints.
+- [x] A7.3 `CapabilityRouter.php` version-detection logic: routes to WP7 native path vs. legacy path.
+
+**Definition of done — verified 2026-07-09:** `wp7/ActionExecutor.php` is the single execution
+authority both paths delegate to (extracted out of `WorkOrderPoller`, which originally had its own
+copy) — nothing about the 4 implemented actions is actually WP7-specific, only *discovery* differs
+between MCP-invoked and outbound-polling-claimed. `AbilitiesRegistrar`/`MCPEndpoints` are an explicitly
+flagged structural stand-in: the hook name, `wp_register_ability()`'s argument shape, and the MCP route
+shape are built from the architecture doc's description, not a confirmed reference against WP7's real,
+still-evolving Abilities/MCP API — agreed with the user up front rather than guessing silently, and
+called out inline in both files for whoever verifies against the real core API later. A background
+security review caught a real bug before it shipped further: `MCPEndpoints` originally gated its
+execute endpoint on `REMOTE_ADDR` alone, which is meaningless on the (extremely common) nginx-reverse-
+proxying-to-PHP-FPM-on-the-same-host topology — fixed by requiring the same site-secret HMAC signature
+every other plugin-originated request already uses, with loopback kept only as defense-in-depth on top
+of that.
+
+A7.2 completed the claim round-trip A5b.1 left unfinished: `POST /api/work-orders/:id/result`
+(site-HMAC authed) is the execution-report endpoint `armDeadMansSwitch`'s own comment already called
+out as needed but was never built — `markWorkOrderExecuted` (packages/db) transitions claimed->executed
+and arms the dead man's switch only on a successful result, verified against real
+`graphile_worker.jobs` rows. `WorkOrderPoller` now reports every result back, fire-and-forget like
+every other outbound call in this plugin, with a named limitation (no retry-across-requests for a
+dropped report, unlike Heartbeat/EventQueue).
+
+The A7.2 integration test (`tests/Integration/LegacyPollingTest.php`) needed its own bootstrap — WP_Mock
+pre-declares WP function names process-wide, making it impossible to also define real (curl-backed)
+implementations of those names in the same PHPUnit run — so it's a separate `phpunit-integration.xml.dist`
+config (`composer test:integration`, never part of plain `composer test`/CI) that provisions its own
+org/site/work_order rows via PDO (including a PHP port of the AES-256-GCM site-secret envelope) and
+self-skips if `localhost:4000/healthz` or local Postgres is unreachable. Verified for real before
+committing: ran `apps/api` on a throwaway port (4000 is occupied on this dev machine by an unrelated
+local WP tool) and confirmed the full claim->validate->execute->report->arm-switch pipeline succeeds
+end to end against the real running system, not just that the code compiles.
+
+91 plugin unit tests passing (plus the integration suite's self-skip confirmed clean against a real
+Docker outage/recovery mid-session), plus 15 new `apps/api`/`packages/db` tests for the result-report
+endpoint. Running totals: 89 across `packages/shared`+`packages/db` (62+27, `packages/shared`
+untouched by A7), 56 in `apps/api`.
 
 ### Task A8 — Audit Log Wiring & Immutability
 - [ ] A8.1 Every mutating action across A3–A7 writes an `audit_log` row (actor, summary in plain
