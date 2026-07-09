@@ -22,11 +22,16 @@ use SyntaxWP\Plugin\Wp7\ActionExecutor;
  * Execution itself is wp7/ActionExecutor.php's job (see below) — its own
  * docblock explains the current 4-action scope and why every other
  * whitelisted action gets an honest `not_implemented` result instead of a
- * fragile guess. Reporting the execution result back to the API is A7.2's
- * job ("Legacy outbound polling path completion"): no such endpoint
- * exists yet (only claim does, A5b.1) — poll() returns its result locally
- * so a caller can inspect it, rather than pretending a report round-trip
- * happens today.
+ * fragile guess. Once executed, the result is reported back via
+ * POST /api/work-orders/:id/result (A7.2 — completes the round-trip
+ * armDeadMansSwitch's own comment already called out as needed).
+ * Fire-and-forget like every other outbound call here, but with a real
+ * limitation worth naming: unlike Heartbeat/EventQueue, a dropped result
+ * report has no retry — there's no "next cycle" for a specific past
+ * order's result the way there is for a recurring heartbeat, and building
+ * that durability is a bigger piece of work than this task's scope.
+ * Today, a lost report leaves the order stuck at "claimed" server-side
+ * with no dead man's switch armed.
  *
  * Checks both safety controls before claiming anything: KillSwitch (a
  * remote backend disable) and SafeMode (this plugin's own anomaly
@@ -118,6 +123,11 @@ final class WorkOrderPoller
             SafeMode::recordFailure();
         }
 
+        $orderId = isset($order->id) ? (string) $order->id : '';
+        if ($orderId !== '') {
+            $this->reportResult($orderId, (string) $secret, $result);
+        }
+
         return $result;
     }
 
@@ -151,10 +161,38 @@ final class WorkOrderPoller
         return $body->workOrder;
     }
 
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function reportResult(string $workOrderId, string $secret, array $result): void
+    {
+        $payload = [
+            'site_id' => get_option('syntaxwp_site_id'),
+            'timestamp' => time(),
+            'nonce' => wp_generate_uuid4(),
+            'result' => $result,
+        ];
+        $payload['hmac'] = Hmac::sign($payload, $secret);
+
+        wp_remote_post($this->resultEndpointUrl($workOrderId), [
+            'body' => wp_json_encode($payload),
+            'headers' => ['Content-Type' => 'application/json'],
+            'timeout' => 5,
+            'blocking' => false,
+        ]);
+    }
+
     private function endpointUrl(string $siteId): string
     {
         $base = get_option('syntaxwp_api_base_url', 'https://api.syntaxwp.com');
 
         return rtrim((string) $base, '/') . '/api/sites/' . $siteId . '/work-orders/claim';
+    }
+
+    private function resultEndpointUrl(string $workOrderId): string
+    {
+        $base = get_option('syntaxwp_api_base_url', 'https://api.syntaxwp.com');
+
+        return rtrim((string) $base, '/') . '/api/work-orders/' . $workOrderId . '/result';
     }
 }

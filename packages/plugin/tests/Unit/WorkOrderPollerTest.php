@@ -77,14 +77,31 @@ final class WorkOrderPollerTest extends TestCase
         \WP_Mock::userFunction('wp_json_encode', ['return_arg' => 0]);
     }
 
-    private function stubClaimResponse(?object $order, int $statusCode = 200): void
+    // Decodes whatever wp_remote_post returns as the claim response —
+    // split from the wp_remote_post stub itself so a test that needs to
+    // supply its OWN wp_remote_post capture (to distinguish the claim call
+    // from the report call, both going through the same mocked function)
+    // can still reuse this.
+    private function stubClaimResponseDecoding(?object $order, int $statusCode = 200): void
     {
-        \WP_Mock::userFunction('wp_remote_post', ['times' => 1]);
         \WP_Mock::userFunction('is_wp_error', ['return' => false]);
         \WP_Mock::userFunction('wp_remote_retrieve_response_code', ['return' => $statusCode]);
         \WP_Mock::userFunction('wp_remote_retrieve_body', [
             'return' => $order === null ? '' : json_encode(['ok' => true, 'workOrder' => $order]),
         ]);
+    }
+
+    // Not `'times' => 1`: whenever poll() reaches execute(), it also
+    // reports the result back via a *second* wp_remote_post call
+    // (reportResult(), A7.2) — permissive here since most of this file's
+    // tests only care about poll()'s return value, not the report call's
+    // own count. test_poll_reports_the_result_back_with_a_valid_signature
+    // below is the one that actually asserts on that second call, and
+    // supplies its own wp_remote_post stub instead of using this one.
+    private function stubClaimResponse(?object $order, int $statusCode = 200): void
+    {
+        \WP_Mock::userFunction('wp_remote_post');
+        $this->stubClaimResponseDecoding($order, $statusCode);
     }
 
     public function test_maybe_poll_skips_on_the_wp7_native_path(): void
@@ -218,5 +235,49 @@ final class WorkOrderPollerTest extends TestCase
             ['success' => false, 'action' => 'update_plugin', 'reason' => 'not_implemented'],
             $poller->poll()
         );
+    }
+
+    // A7.2 — poll() must report back what it executed, not just return it
+    // locally. Distinguishes the report call from the claim call by URL,
+    // since both go through the same wp_remote_post mock.
+    public function test_poll_reports_the_result_back_with_a_valid_signature(): void
+    {
+        \WP_Mock::userFunction('get_transient', ['return' => false]);
+        \WP_Mock::userFunction('set_transient', ['times' => 1]);
+        \WP_Mock::userFunction('wp_cache_flush', ['times' => 1]);
+
+        $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
+        $order = $this->makeOrder(['action' => 'flush_cache']);
+        $order->hmac = Hmac::sign($order, 'test-secret');
+        $this->stubClaimResponseDecoding($order);
+
+        $calls = [];
+        \WP_Mock::userFunction('wp_remote_post')->andReturnUsing(function ($url, $args) use (&$calls) {
+            $calls[] = [$url, $args];
+
+            return ['response' => ['code' => 200], 'body' => ''];
+        });
+
+        $poller = new WorkOrderPoller(new CapabilityRouter('6.8.0', false));
+        $poller->poll();
+
+        $reportCall = null;
+        foreach ($calls as [$url, $args]) {
+            if (str_contains($url, '/result')) {
+                $reportCall = [$url, $args];
+            }
+        }
+        $this->assertNotNull($reportCall, 'expected a POST to a /result endpoint');
+
+        [$url, $args] = $reportCall;
+        $this->assertSame("https://api.syntaxwp.com/api/work-orders/{$order->id}/result", $url);
+        $this->assertFalse($args['blocking']);
+
+        $sentPayload = $args['body'];
+        $hmac = $sentPayload['hmac'];
+        unset($sentPayload['hmac']);
+        $this->assertTrue(Hmac::verify($sentPayload, 'test-secret', $hmac));
+        $this->assertSame(['success' => true, 'action' => 'flush_cache'], $sentPayload['result']);
     }
 }
