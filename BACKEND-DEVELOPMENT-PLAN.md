@@ -292,16 +292,40 @@ enforcement and cross-site isolation, 3 LISTEN/NOTIFY round-trip, 3 SSE-route) a
 Postgres — no mocked trigger, emitter, or signature anywhere in this set. Running totals: 85 across
 `packages/shared`+`packages/db` (62+23), 51 in `apps/api`.
 
-### Task A6 — WordPress Plugin: Core & Safety (`packages/plugin`)
-- [ ] A6.1 `core/`: `Heartbeat.php`, `EventQueue.php`, `ErrorCapture.php`, `WorkOrderPoller.php`,
+### Task A6 — WordPress Plugin: Core & Safety (`packages/plugin`) ✅ Done
+- [x] A6.1 `core/`: `Heartbeat.php`, `EventQueue.php`, `ErrorCapture.php`, `WorkOrderPoller.php`,
   `CapabilityRouter.php` (§4.2).
-- [ ] A6.2 `safety/`: `WorkOrderValidator.php` (HMAC + expiry + nonce + whitelist checks, §15.1),
+- [x] A6.2 `safety/`: `WorkOrderValidator.php` (HMAC + expiry + nonce + whitelist checks, §15.1),
   `ActionWhitelist.php` (12 permitted actions, §8.2/§9.3), `SafeMode.php`, `KillSwitch.php`.
-- [ ] A6.3 `mu-watchdog/SyntaxWPWatchdog.php` (MU plugin, last-resort heartbeat/restart).
+- [x] A6.3 `mu-watchdog/SyntaxWPWatchdog.php` (MU plugin, last-resort heartbeat/restart).
   Plugin test harness (PHPUnit or `wp-env`) with mocked HTTP calls to a local `apps/api` instance —
   no live WordPress site required for this.
-- [ ] A6.4 Resource budget enforcement checks (§4.4): server time added, memory footprint, zero
+- [x] A6.4 Resource budget enforcement checks (§4.4): server time added, memory footprint, zero
   autoload DB writes, network calls only on `shutdown`/WP-Cron.
+
+**Definition of done — verified 2026-07-09:** WP_Mock + PHPUnit + Mockery harness (`composer.json`
+pinned to PHPUnit ^9.6 — 10up/wp_mock 1.1.1 hard-requires it, no released version supports PHPUnit 10
+yet), zero live WordPress install anywhere in the suite. `core/Hmac.php` is a byte-for-byte PHP port of
+`packages/shared/src/hmac.ts`'s canonicalization, validated against the exact same golden fixture
+vectors both suites consume (a relative path to the one shared file, not a copy). `CapabilityRouter`
+routes to `wp7_native` only when both WP≥7 and the Abilities API are actually available, defaulting to
+the legacy outbound-polling path otherwise. `Heartbeat`/`EventQueue`/`ErrorCapture`/`WorkOrderPoller`/
+the mu-plugin watchdog all fire exclusively on the `shutdown` hook (never the request-critical path);
+`EventQueue` persists its pending queue in a non-autoloaded option specifically so a failed send
+survives to retry on the next request, not just the same one. `WorkOrderPoller` executes only the 4
+whitelisted actions with a genuinely simple, safe, single-mechanism implementation right now
+(`flush_cache`, `clear_transients`, `activate_plugin`, `deactivate_plugin` — the same subset A4.3's
+revert executor already scoped itself to); every other whitelisted action returns an honest
+`not_implemented` result rather than a fragile guess, and reporting results back to the API is deferred
+to A7.2 ("Legacy outbound polling path completion") since no such endpoint exists yet. `SafeMode`
+(local, consecutive-failure-triggered) and `KillSwitch` (remote-triggered, though the backend delivery
+mechanism itself — most likely riding along in the heartbeat response — doesn't exist yet either) both
+gate `WorkOrderPoller` before it claims anything. A6.2a (`ActionWhitelist`/`WorkOrderValidator`) was
+pulled forward ahead of A6.1b in the plan's own commit order since `WorkOrderPoller` has a hard
+dependency on both — same reasoning as A4's own out-of-order build. Caught and fixed one real latent
+bug before it shipped: the original `composer.json` autoload map let Composer derive `Core/Hmac.php`
+from the namespace and silently resolve it against the real `core/Hmac.php` only because macOS's
+filesystem is case-insensitive — would have 500'd on any case-sensitive host. 66 tests passing.
 
 ### Task A7 — WordPress Plugin: Dual Execution Path
 - [ ] A7.1 `wp7/`: `AbilitiesRegistrar.php`, `MCPEndpoints.php` (localhost-only), `ActionExecutor.php`
