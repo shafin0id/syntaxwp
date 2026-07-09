@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace SyntaxWP\Plugin\Core;
 
+use SyntaxWP\Plugin\Safety\KillSwitch;
+use SyntaxWP\Plugin\Safety\SafeMode;
 use SyntaxWP\Plugin\Safety\WorkOrderValidator;
 
 /**
@@ -32,6 +34,12 @@ use SyntaxWP\Plugin\Safety\WorkOrderValidator;
  * yet (only claim does, A5b.1) — poll() returns its result locally so a
  * caller can inspect it, rather than pretending a report round-trip
  * happens today.
+ *
+ * Checks both safety controls before claiming anything: KillSwitch (a
+ * remote backend disable) and SafeMode (this plugin's own anomaly
+ * response) each independently stop execution, and every execute() result
+ * feeds SafeMode's failure counter — a run of execution failures is
+ * exactly the anomaly SafeMode exists to catch.
  *
  * @author Tanmay Kirtania <jktanmay@gmail.com>
  */
@@ -74,6 +82,10 @@ final class WorkOrderPoller
      */
     public function poll(): ?array
     {
+        if (KillSwitch::isActive() || SafeMode::isActive()) {
+            return null;
+        }
+
         $siteId = get_option('syntaxwp_site_id');
         $secret = get_option('syntaxwp_site_secret');
         if (!$siteId || !$secret) {
@@ -86,10 +98,19 @@ final class WorkOrderPoller
         }
 
         if (!$this->validator->validate($order, (string) $secret)) {
+            SafeMode::recordFailure();
+
             return ['success' => false, 'reason' => 'validation_failed'];
         }
 
-        return $this->execute($order);
+        $result = $this->execute($order);
+        if ($result['success'] ?? false) {
+            SafeMode::recordSuccess();
+        } else {
+            SafeMode::recordFailure();
+        }
+
+        return $result;
     }
 
     private function claim(string $siteId, string $secret): ?object

@@ -31,8 +31,37 @@ final class WorkOrderPollerTest extends TestCase
         return (object) array_merge($base, $overrides);
     }
 
+    private function stubSafetyGatesInactive(): void
+    {
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_kill_switch_active', false],
+            'return' => false,
+        ]);
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_safe_mode_active', false],
+            'return' => false,
+        ]);
+    }
+
+    // SafeMode::recordFailure()/recordSuccess() bookkeeping — permissive
+    // (no 'times') since which one fires, and how many times, depends on
+    // each test's own outcome; the assertion that matters is poll()'s
+    // return value, not SafeMode's internal counter.
+    private function stubSafeModeBookkeeping(): void
+    {
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_safe_mode_failure_count', 0],
+            'return' => 0,
+        ]);
+        \WP_Mock::userFunction('update_option', [
+            'args' => ['syntaxwp_safe_mode_failure_count', \WP_Mock\Functions::type('int'), false],
+        ]);
+    }
+
     private function stubConnectedSite(string $secret = 'test-secret'): void
     {
+        $this->stubSafetyGatesInactive();
+
         \WP_Mock::userFunction('get_option', [
             'args' => ['syntaxwp_site_id'],
             'return' => 'site-123',
@@ -83,8 +112,39 @@ final class WorkOrderPollerTest extends TestCase
         $this->assertConditionsMet();
     }
 
+    public function test_poll_returns_null_when_the_kill_switch_is_active(): void
+    {
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_kill_switch_active', false],
+            'return' => true,
+        ]);
+        \WP_Mock::userFunction('wp_remote_post', ['times' => 0]);
+
+        $poller = new WorkOrderPoller(new CapabilityRouter('6.8.0', false));
+        $this->assertNull($poller->poll());
+        $this->assertConditionsMet();
+    }
+
+    public function test_poll_returns_null_when_safe_mode_is_active(): void
+    {
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_kill_switch_active', false],
+            'return' => false,
+        ]);
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_safe_mode_active', false],
+            'return' => true,
+        ]);
+        \WP_Mock::userFunction('wp_remote_post', ['times' => 0]);
+
+        $poller = new WorkOrderPoller(new CapabilityRouter('6.8.0', false));
+        $this->assertNull($poller->poll());
+        $this->assertConditionsMet();
+    }
+
     public function test_poll_returns_null_when_the_site_is_not_yet_connected(): void
     {
+        $this->stubSafetyGatesInactive();
         \WP_Mock::userFunction('get_option', [
             'args' => ['syntaxwp_site_id'],
             'return' => false,
@@ -112,6 +172,7 @@ final class WorkOrderPollerTest extends TestCase
     public function test_poll_returns_validation_failed_for_a_badly_signed_order(): void
     {
         $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
         $order = $this->makeOrder();
         $order->hmac = Hmac::sign($order, 'a-different-secret');
         $this->stubClaimResponse($order);
@@ -127,6 +188,7 @@ final class WorkOrderPollerTest extends TestCase
         \WP_Mock::userFunction('wp_cache_flush', ['times' => 1]);
 
         $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
         $order = $this->makeOrder(['action' => 'flush_cache']);
         $order->hmac = Hmac::sign($order, 'test-secret');
         $this->stubClaimResponse($order);
@@ -146,6 +208,7 @@ final class WorkOrderPollerTest extends TestCase
         $wpdb->shouldReceive('query')->once()->with(Mockery::pattern('/DELETE FROM wp_options/'));
 
         $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
         $order = $this->makeOrder(['action' => 'clear_transients']);
         $order->hmac = Hmac::sign($order, 'test-secret');
         $this->stubClaimResponse($order);
@@ -167,6 +230,7 @@ final class WorkOrderPollerTest extends TestCase
         ]);
 
         $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
         $order = $this->makeOrder(['action' => 'deactivate_plugin', 'target' => 'yoast-seo']);
         $order->hmac = Hmac::sign($order, 'test-secret');
         $this->stubClaimResponse($order);
@@ -192,6 +256,7 @@ final class WorkOrderPollerTest extends TestCase
         \WP_Mock::userFunction('is_wp_error', ['return' => false]);
 
         $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
         $order = $this->makeOrder(['action' => 'activate_plugin', 'target' => 'yoast-seo']);
         $order->hmac = Hmac::sign($order, 'test-secret');
         $this->stubClaimResponse($order);
@@ -210,6 +275,7 @@ final class WorkOrderPollerTest extends TestCase
         \WP_Mock::userFunction('get_plugins', ['return' => []]);
 
         $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
         $order = $this->makeOrder(['action' => 'deactivate_plugin', 'target' => 'nonexistent']);
         $order->hmac = Hmac::sign($order, 'test-secret');
         $this->stubClaimResponse($order);
@@ -227,6 +293,7 @@ final class WorkOrderPollerTest extends TestCase
         \WP_Mock::userFunction('set_transient', ['times' => 1]);
 
         $this->stubConnectedSite('test-secret');
+        $this->stubSafeModeBookkeeping();
         $order = $this->makeOrder(['action' => 'update_plugin', 'target' => 'yoast-seo']);
         $order->hmac = Hmac::sign($order, 'test-secret');
         $this->stubClaimResponse($order);
