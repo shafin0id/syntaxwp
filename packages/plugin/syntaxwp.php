@@ -26,6 +26,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 require_once __DIR__ . '/vendor/autoload.php';
 
 use SyntaxWP\Plugin\Core\CapabilityRouter;
+use SyntaxWP\Plugin\Core\ErrorCapture;
 use SyntaxWP\Plugin\Core\EventQueue;
 use SyntaxWP\Plugin\Core\Heartbeat;
 
@@ -109,6 +110,7 @@ class SyntaxWP {
         $capability_router = CapabilityRouter::forCurrentEnvironment();
 
         ( new Heartbeat( $capability_router ) )->registerHooks();
+        ( new ErrorCapture() )->registerHooks();
         ( new EventQueue() )->registerHooks();
     }
 }
