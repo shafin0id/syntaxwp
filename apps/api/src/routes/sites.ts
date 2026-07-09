@@ -3,10 +3,12 @@ import { z } from "zod";
 import {
   db,
   createSite,
+  claimNextPendingWorkOrder,
   getSiteByIdForOrg,
   recordHeartbeat,
   upsertPluginInventory,
   insertAuditLog,
+  workOrderToWirePayload,
   type Site,
 } from "@syntaxwp/db";
 import { encryptSiteSecret, generateSiteSecret, loadSiteSecretEncryptionKey } from "@syntaxwp/shared";
@@ -164,5 +166,38 @@ export const sitesRoutes = new Hono<{ Variables: SessionVariables & SiteAuthVari
       }
 
       return c.json({ ok: true, recorded: parsed.data.events.length });
+    },
+  )
+  .post(
+    "/:id/work-orders/claim",
+    verifySiteAuth,
+    rateLimit<{ Variables: SessionVariables & SiteAuthVariables }>("work_claims", (c) =>
+      c.get("site").id,
+    ),
+    async (c) => {
+      const site = c.get("site");
+      if (c.req.param("id") !== site.id) {
+        return c.json({ error: "site_id in body does not match :id in URL" }, 400);
+      }
+
+      // Discover-and-claim in one atomic statement (see
+      // claimNextPendingWorkOrder's comment) — the legacy plugin path is
+      // outbound-only (§4.1), so it has no way to know a work order's id
+      // ahead of a poll; there's nothing to discover separately.
+      const claimed = await claimNextPendingWorkOrder(db, site.id);
+      if (!claimed) {
+        return c.json({ error: "no pending work order" }, 404);
+      }
+
+      await insertAuditLog(db, {
+        siteId: claimed.siteId,
+        workOrderId: claimed.id,
+        incidentId: claimed.incidentId,
+        eventType: "work_order_claimed",
+        actor: "system",
+        summary: `Claimed ${claimed.action} (${claimed.risk} risk)`,
+      });
+
+      return c.json({ ok: true, workOrder: workOrderToWirePayload(claimed) });
     },
   );

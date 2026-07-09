@@ -7,12 +7,14 @@ import { workOrders } from "../schema/index.js";
 import { eq } from "drizzle-orm";
 import {
   approveWorkOrder,
+  claimNextPendingWorkOrder,
   declineWorkOrder,
   expireStaleWorkOrders,
   getWorkOrderById,
   getWorkOrderForOrg,
   issueWorkOrder,
   issueWorkOrderWithPolicy,
+  workOrderToWirePayload,
 } from "./work-orders.js";
 
 // One shared `sql` connection (../client.js) across every describe block in
@@ -209,5 +211,110 @@ describe("approveWorkOrder / declineWorkOrder / getWorkOrderForOrg", () => {
   it("getWorkOrderForOrg returns the row for the owning org", async () => {
     const { orgId, workOrderId } = await makeAwaitingApprovalOrder();
     expect((await getWorkOrderForOrg(db, workOrderId, orgId))?.id).toBe(workOrderId);
+  });
+});
+
+describe("claimNextPendingWorkOrder", () => {
+  async function makeTestSite() {
+    const org = await createOrg(db, { name: "claim-test-org" });
+    const site = await createSite(db, {
+      orgId: org.id,
+      url: "http://claim-test.example",
+      siteSecretCiphertext: "irrelevant",
+    });
+    return site;
+  }
+
+  it("claims the oldest pending order for a site and returns undefined once it's empty", async () => {
+    const site = await makeTestSite();
+    const secret = "secret";
+    const { row: older } = await issueWorkOrder(db, {
+      siteId: site.id,
+      action: "flush_cache",
+      risk: "low",
+      deadMansSwitchMs: 30_000,
+      siteSecret: secret,
+    });
+    const { row: newer } = await issueWorkOrder(db, {
+      siteId: site.id,
+      action: "flush_cache",
+      risk: "low",
+      deadMansSwitchMs: 30_000,
+      siteSecret: secret,
+    });
+
+    const first = await claimNextPendingWorkOrder(db, site.id);
+    expect(first?.id).toBe(older.id);
+    expect(first?.status).toBe("claimed");
+    expect(first?.claimedAt).not.toBeNull();
+
+    const second = await claimNextPendingWorkOrder(db, site.id);
+    expect(second?.id).toBe(newer.id);
+
+    expect(await claimNextPendingWorkOrder(db, site.id)).toBeUndefined();
+  });
+
+  it("never claims another site's pending order", async () => {
+    const site = await makeTestSite();
+    const otherSite = await makeTestSite();
+    await issueWorkOrder(db, {
+      siteId: otherSite.id,
+      action: "flush_cache",
+      risk: "low",
+      deadMansSwitchMs: 30_000,
+      siteSecret: "secret",
+    });
+
+    expect(await claimNextPendingWorkOrder(db, site.id)).toBeUndefined();
+  });
+
+  it("ignores awaiting_approval orders — only pending is claimable", async () => {
+    const site = await makeTestSite();
+    await issueWorkOrderWithPolicy(db, {
+      siteId: site.id,
+      action: "deactivate_plugin",
+      risk: "medium",
+      deadMansSwitchMs: 30_000,
+      siteSecret: "secret",
+      tier: "full_auto",
+    });
+
+    expect(await claimNextPendingWorkOrder(db, site.id)).toBeUndefined();
+  });
+});
+
+describe("workOrderToWirePayload", () => {
+  it("reconstructs a payload whose signature verifies against the site secret", async () => {
+    const org = await createOrg(db, { name: "wire-payload-test-org" });
+    const site = await createSite(db, {
+      orgId: org.id,
+      url: "http://wire-payload-test.example",
+      siteSecretCiphertext: "irrelevant",
+    });
+    const secret = "wire-payload-secret";
+    const { row } = await issueWorkOrder(db, {
+      siteId: site.id,
+      action: "flush_cache",
+      target: "all",
+      risk: "low",
+      deadMansSwitchMs: 30_000,
+      siteSecret: secret,
+    });
+
+    const claimed = await claimNextPendingWorkOrder(db, site.id);
+    const wirePayload = workOrderToWirePayload(claimed!);
+
+    expect(wirePayload).toEqual({
+      id: row.id,
+      site_id: site.id,
+      action: "flush_cache",
+      target: "all",
+      parameters: {},
+      issued_at: Math.floor(row.issuedAt!.getTime() / 1000),
+      expires_at: Math.floor(row.expiresAt.getTime() / 1000),
+      dead_mans_switch_ms: 30_000,
+      hmac: row.hmac,
+    });
+    expect(verifyWorkOrderSignature(wirePayload, secret)).toBe(true);
   });
 });

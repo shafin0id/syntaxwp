@@ -189,6 +189,59 @@ export async function expireStaleWorkOrders(db: Database): Promise<number> {
 // that was never executed can't be marked reverted, and one already
 // reverted (e.g. a retried dead-man's-switch fire racing a disarm) can't be
 // "re-reverted" and double-issue a corrective work order.
+// Reconstructs the exact unsigned-payload shape `issueWorkOrder` computed
+// the HMAC over (see the `unsigned` object above), from a persisted row —
+// so a claiming plugin can verify the same signature the server produced at
+// issuance. `Math.floor(date.getTime() / 1000)` mirrors the truncation
+// `issueWorkOrder` applied going in; Postgres's microsecond timestamp
+// precision means the round-trip loses nothing `issued_at`/`expires_at`
+// didn't already lack.
+export function workOrderToWirePayload(row: WorkOrderRow): WorkOrder {
+  return {
+    id: row.id,
+    site_id: row.siteId,
+    action: row.action as WorkOrderAction,
+    target: row.target ?? "",
+    parameters: (row.parameters as Record<string, unknown>) ?? {},
+    issued_at: Math.floor((row.issuedAt ?? new Date()).getTime() / 1000),
+    expires_at: Math.floor(row.expiresAt.getTime() / 1000),
+    dead_mans_switch_ms: row.deadMansSwitchMs,
+    hmac: row.hmac,
+  };
+}
+
+// A5b.1's claim endpoint. The legacy (pre-WP7) plugin execution path is
+// outbound-only (§4.1) — it can't be pushed a work order's id, so discovery
+// and claiming happen in one atomic statement: pick the site's oldest
+// pending order and claim it in the same UPDATE, rather than a separate
+// "list pending" call followed by a claim-by-id call (which would open a
+// TOCTOU window between the two, and needs its own endpoint besides). A
+// single UPDATE...WHERE id = (SELECT ...) is still one atomic operation from
+// Postgres's perspective — no read-then-write race between two concurrent
+// pollers for the same site, since the subquery's row lock is taken as part
+// of the same statement.
+export async function claimNextPendingWorkOrder(
+  db: Database,
+  siteId: string,
+): Promise<WorkOrderRow | undefined> {
+  const [row] = await db
+    .update(workOrders)
+    .set({ status: "claimed", claimedAt: new Date() })
+    .where(
+      eq(
+        workOrders.id,
+        db
+          .select({ id: workOrders.id })
+          .from(workOrders)
+          .where(and(eq(workOrders.siteId, siteId), eq(workOrders.status, "pending")))
+          .orderBy(workOrders.issuedAt)
+          .limit(1),
+      ),
+    )
+    .returning();
+  return row;
+}
+
 export async function markWorkOrderReverted(
   db: Database,
   workOrderId: string,
