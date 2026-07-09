@@ -30,6 +30,7 @@ use SyntaxWP\Plugin\Core\CapabilityRouter;
 use SyntaxWP\Plugin\Core\ErrorCapture;
 use SyntaxWP\Plugin\Core\EventQueue;
 use SyntaxWP\Plugin\Core\Heartbeat;
+use SyntaxWP\Plugin\Core\WorkOrderPoller;
 
 /**
  * Main plugin class — bootstraps the plugin as a singleton, the same
@@ -113,6 +114,7 @@ class SyntaxWP {
         ( new Heartbeat( $capability_router ) )->registerHooks();
         ( new ErrorCapture() )->registerHooks();
         ( new EventQueue() )->registerHooks();
+        ( new WorkOrderPoller( $capability_router ) )->registerHooks();
     }
 }
 

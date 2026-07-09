@@ -116,20 +116,13 @@ final class Heartbeat
         $plugins = [];
         foreach (get_plugins() as $pluginFile => $data) {
             $plugins[] = [
-                'slug' => $this->slugFromPluginFile($pluginFile),
+                'slug' => PluginSlug::fromFile($pluginFile),
                 'version' => $data['Version'] ?? '',
                 'active' => is_plugin_active($pluginFile),
             ];
         }
 
         return $plugins;
-    }
-
-    private function slugFromPluginFile(string $pluginFile): string
-    {
-        $dir = dirname($pluginFile);
-
-        return $dir !== '.' ? $dir : basename($pluginFile, '.php');
     }
 
     /**
