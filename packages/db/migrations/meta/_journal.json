@@ -43,6 +43,13 @@
       "when": 1783548642072,
       "tag": "0005_work_orders_dead_mans_switch_ms",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783549000000,
+      "tag": "0006_audit_log_notify_trigger",
+      "breakpoints": true
     }
   ]
 }

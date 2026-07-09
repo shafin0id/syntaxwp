@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import {
   db,
@@ -16,6 +17,12 @@ import { env } from "../env.js";
 import { requireSession, getOrgIdFromUser, type SessionVariables } from "../auth/middleware.js";
 import { verifySiteAuth, type SiteAuthVariables } from "../auth/site-auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
+import { subscribeToSiteEvents } from "../realtime/site-events.js";
+
+// §10.3's keep-alive cadence — long enough not to spam an idle connection,
+// short enough that a dead connection (proxy silently dropped it) is
+// noticed well within a dashboard user's patience.
+const SSE_PING_INTERVAL_MS = 30_000;
 
 const encryptionKey = loadSiteSecretEncryptionKey(env.SITE_SECRET_ENCRYPTION_KEY);
 
@@ -112,6 +119,42 @@ export const sitesRoutes = new Hono<{ Variables: SessionVariables & SiteAuthVari
     }
 
     return c.json(serializeSite(site));
+  })
+  .get("/:id/stream", requireSession, async (c) => {
+    const orgId = getOrgIdFromUser(c.get("user"));
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
+
+    const site = await getSiteByIdForOrg(db, c.req.param("id"), orgId);
+    if (!site) {
+      return c.json({ error: "site not found" }, 404);
+    }
+
+    // Same architecture as §10.3's reference implementation: one background
+    // ping loop keeps the connection alive (some proxies/load balancers
+    // close idle connections), while the NOTIFY-fed subscription callback
+    // pushes real events independently as they arrive — both write to the
+    // same stream from different points in time, never concurrently in
+    // practice at this traffic volume.
+    return streamSSE(c, async (stream) => {
+      const unsubscribe = await subscribeToSiteEvents(site.id, (event) => {
+        void stream.writeSSE({
+          data: JSON.stringify(event),
+          event: event.event_type,
+          id: event.id,
+        });
+      });
+      stream.onAbort(() => {
+        unsubscribe();
+      });
+
+      while (!stream.aborted) {
+        await stream.writeSSE({ data: "", event: "ping" });
+        await stream.sleep(SSE_PING_INTERVAL_MS);
+      }
+      unsubscribe();
+    });
   })
   .post(
     "/:id/heartbeat",

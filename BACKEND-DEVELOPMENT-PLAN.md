@@ -270,7 +270,7 @@ and 39 in `apps/api`.
 
 ### Task A5b — Hono API Surface: Work Orders & Streaming *(after A3 — needs the WorkOrder engine)*
 - [x] A5b.1 Work-order claim endpoint.
-- [ ] A5b.2 `GET /api/sites/:id/stream` (SSE, §10.3).
+- [x] A5b.2 `GET /api/sites/:id/stream` (SSE, §10.3).
 - [ ] A5b.3 Rate limiting for the work_claims endpoint class (§15.2).
 
 ### Task A6 — WordPress Plugin: Core & Safety (`packages/plugin`)
