@@ -371,7 +371,7 @@ endpoint. Running totals: 89 across `packages/shared`+`packages/db` (62+27, `pac
 untouched by A7), 56 in `apps/api`.
 
 ### Task A8 — Audit Log Wiring & Immutability
-- [ ] A8.1 Every mutating action across A3–A7 writes an `audit_log` row (actor, summary in plain
+- [x] A8.1 Every mutating action across A3–A7 writes an `audit_log` row (actor, summary in plain
   English, evidence).
 - [ ] A8.2 Verify append-only enforcement with an automated test that attempts UPDATE/DELETE and
   expects rejection.
