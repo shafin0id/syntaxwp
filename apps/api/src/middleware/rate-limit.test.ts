@@ -15,18 +15,18 @@ function buildApp(rateLimitClass: Parameters<typeof rateLimit>[0]) {
 
 describe("rateLimit", () => {
   it("allows requests under the configured max", async () => {
-    const app = buildApp("heartbeat"); // max: 5
+    const app = buildApp("heartbeat"); // max: 6
     const key = `under-${Math.random()}`;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       const res = await app.request(`/test?key=${key}`);
       expect(res.status).toBe(200);
     }
   });
 
   it("rejects the request once the max is exceeded within the window", async () => {
-    const app = buildApp("heartbeat"); // max: 5
+    const app = buildApp("heartbeat"); // max: 6
     const key = `over-${Math.random()}`;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await app.request(`/test?key=${key}`);
     }
     const res = await app.request(`/test?key=${key}`);
@@ -38,7 +38,7 @@ describe("rateLimit", () => {
     const app = buildApp("heartbeat");
     const keyA = `scope-a-${Math.random()}`;
     const keyB = `scope-b-${Math.random()}`;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await app.request(`/test?key=${keyA}`);
     }
     // keyA is now exhausted, keyB should be unaffected
@@ -49,10 +49,10 @@ describe("rateLimit", () => {
   });
 
   it("scopes limits independently per rate-limit class", async () => {
-    const heartbeatApp = buildApp("heartbeat"); // max: 5
-    const eventsApp = buildApp("events"); // max: 30
+    const heartbeatApp = buildApp("heartbeat"); // max: 6
+    const eventsApp = buildApp("events"); // max: 60
     const key = `class-scope-${Math.random()}`;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await heartbeatApp.request(`/test?key=${key}`);
     }
     const heartbeatRes = await heartbeatApp.request(`/test?key=${key}`);

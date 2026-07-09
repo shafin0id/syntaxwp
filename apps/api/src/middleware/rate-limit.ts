@@ -11,15 +11,19 @@ interface RateLimitConfig {
   max: number;
 }
 
-// Starting points, not final — tuned against real traffic shapes in A9.1
-// once Track B's synthetic checks produce some. Heartbeats fire every 60s
-// per §4.3, so `max` has headroom for retries/clock skew without being so
-// loose the limit stops meaning anything.
+// A9.1 — matches §15.2's own reference numbers exactly, not a freehand
+// guess: Track B (whose synthetic checks would otherwise be the "real
+// traffic shapes" this task was written against) hasn't landed, so there is
+// no live traffic to tune against yet. The architecture doc's own spec is
+// the best available signal until there is — closer to ground truth than
+// the ad hoc starting values this file shipped with pre-A9. Revisit once
+// Track B's probe traffic and the legacy poller's real claim cadence are
+// both observable.
 const CONFIGS: Record<RateLimitClass, RateLimitConfig> = {
-  heartbeat: { windowMs: 60_000, max: 5 },
-  events: { windowMs: 60_000, max: 30 },
-  probe: { windowMs: 60_000, max: 10 },
-  work_claims: { windowMs: 60_000, max: 20 },
+  heartbeat: { windowMs: 60_000, max: 6 }, // ~1 per 10s; plugin heartbeats every 60s (§4.3)
+  events: { windowMs: 60_000, max: 60 }, // 1/sec burst allowance
+  probe: { windowMs: 60_000, max: 120 }, // edge probes fan out from 200+ Cloudflare regions
+  work_claims: { windowMs: 60_000, max: 12 },
 };
 
 interface WindowState {
