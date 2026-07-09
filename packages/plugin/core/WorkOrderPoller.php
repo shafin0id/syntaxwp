@@ -7,6 +7,7 @@ namespace SyntaxWP\Plugin\Core;
 use SyntaxWP\Plugin\Safety\KillSwitch;
 use SyntaxWP\Plugin\Safety\SafeMode;
 use SyntaxWP\Plugin\Safety\WorkOrderValidator;
+use SyntaxWP\Plugin\Wp7\ActionExecutor;
 
 /**
  * Claim + execute signed work orders (§4.1's legacy outbound-polling
@@ -18,21 +19,13 @@ use SyntaxWP\Plugin\Safety\WorkOrderValidator;
  * "gate-on-shutdown beats WP-Cron's unreliable pseudo-schedule" rationale
  * (§4.1's own "HMAC-signed work order poll every 60s").
  *
- * Execution only covers the whitelisted actions with a genuinely simple,
- * safe, single-mechanism WP-native implementation right now: flush_cache,
- * clear_transients, activate_plugin, deactivate_plugin — the same subset
- * A4.3's revert executor already treats as "the ones with a clean
- * mechanical implementation using data already on hand". Every other
- * whitelisted action (update_plugin's upgrader flow, delete_plugin/
- * update_core's destructive-operation safeguards, switch_theme,
- * update_option, toggle_debug's wp-config.php editing, disable_
- * maintenance_mode's ambiguity over which maintenance mechanism is meant)
- * needs real, carefully-tested implementations this task doesn't build —
- * A7.2's own description ("Legacy outbound polling path completion") is
- * explicitly where this gets finished, not here. Reporting the execution
- * result back to the API is likewise A7.2's job: no such endpoint exists
- * yet (only claim does, A5b.1) — poll() returns its result locally so a
- * caller can inspect it, rather than pretending a report round-trip
+ * Execution itself is wp7/ActionExecutor.php's job (see below) — its own
+ * docblock explains the current 4-action scope and why every other
+ * whitelisted action gets an honest `not_implemented` result instead of a
+ * fragile guess. Reporting the execution result back to the API is A7.2's
+ * job ("Legacy outbound polling path completion"): no such endpoint
+ * exists yet (only claim does, A5b.1) — poll() returns its result locally
+ * so a caller can inspect it, rather than pretending a report round-trip
  * happens today.
  *
  * Checks both safety controls before claiming anything: KillSwitch (a
@@ -40,6 +33,14 @@ use SyntaxWP\Plugin\Safety\WorkOrderValidator;
  * response) each independently stop execution, and every execute() result
  * feeds SafeMode's failure counter — a run of execution failures is
  * exactly the anomaly SafeMode exists to catch.
+ *
+ * Delegates actual execution to wp7/ActionExecutor.php (A7.1) — that's
+ * the single execution authority both this path and the WP7-native path
+ * share, so "how to flush the cache" has one implementation, not two that
+ * could drift. The `core` -> `wp7` dependency direction reads backwards
+ * from the directory names, but is deliberate: nothing about running
+ * these 4 actions is actually WP7-specific (see ActionExecutor's own
+ * docblock) — only *discovery* differs between the two paths.
  *
  * @author Tanmay Kirtania <jktanmay@gmail.com>
  */
@@ -50,11 +51,16 @@ final class WorkOrderPoller
 
     private CapabilityRouter $capabilityRouter;
     private WorkOrderValidator $validator;
+    private ActionExecutor $executor;
 
-    public function __construct(CapabilityRouter $capabilityRouter, ?WorkOrderValidator $validator = null)
-    {
+    public function __construct(
+        CapabilityRouter $capabilityRouter,
+        ?WorkOrderValidator $validator = null,
+        ?ActionExecutor $executor = null
+    ) {
         $this->capabilityRouter = $capabilityRouter;
         $this->validator = $validator ?? new WorkOrderValidator();
+        $this->executor = $executor ?? new ActionExecutor();
     }
 
     public function registerHooks(): void
@@ -103,7 +109,9 @@ final class WorkOrderPoller
             return ['success' => false, 'reason' => 'validation_failed'];
         }
 
-        $result = $this->execute($order);
+        $action = isset($order->action) ? (string) $order->action : '';
+        $target = isset($order->target) ? (string) $order->target : '';
+        $result = $this->executor->execute($action, $target);
         if ($result['success'] ?? false) {
             SafeMode::recordSuccess();
         } else {
@@ -141,63 +149,6 @@ final class WorkOrderPoller
         }
 
         return $body->workOrder;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function execute(object $order): array
-    {
-        $action = isset($order->action) ? (string) $order->action : '';
-        $target = isset($order->target) ? (string) $order->target : '';
-
-        switch ($action) {
-            case 'flush_cache':
-                wp_cache_flush();
-
-                return ['success' => true, 'action' => $action];
-
-            case 'clear_transients':
-                $this->clearTransients();
-
-                return ['success' => true, 'action' => $action];
-
-            case 'deactivate_plugin':
-            case 'activate_plugin':
-                return $this->togglePlugin($action, $target);
-
-            default:
-                return ['success' => false, 'action' => $action, 'reason' => 'not_implemented'];
-        }
-    }
-
-    private function clearTransients(): void
-    {
-        global $wpdb;
-        $wpdb->query(
-            "DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_%' OR option_name LIKE '\\_site\\_transient\\_%'"
-        );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function togglePlugin(string $action, string $slug): array
-    {
-        $pluginFile = PluginSlug::toFile($slug);
-        if ($pluginFile === null) {
-            return ['success' => false, 'action' => $action, 'reason' => 'plugin_not_found', 'target' => $slug];
-        }
-
-        if ($action === 'activate_plugin') {
-            $result = activate_plugin($pluginFile);
-
-            return ['success' => !is_wp_error($result), 'action' => $action, 'target' => $slug];
-        }
-
-        deactivate_plugins($pluginFile);
-
-        return ['success' => true, 'action' => $action, 'target' => $slug];
     }
 
     private function endpointUrl(string $siteId): string

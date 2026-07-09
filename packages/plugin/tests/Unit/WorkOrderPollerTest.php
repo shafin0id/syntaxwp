@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace SyntaxWP\Plugin\Tests\Unit;
 
-use Mockery;
 use SyntaxWP\Plugin\Core\CapabilityRouter;
 use SyntaxWP\Plugin\Core\Hmac;
 use SyntaxWP\Plugin\Core\WorkOrderPoller;
@@ -181,7 +180,13 @@ final class WorkOrderPollerTest extends TestCase
         $this->assertSame(['success' => false, 'reason' => 'validation_failed'], $poller->poll());
     }
 
-    public function test_poll_executes_flush_cache(): void
+    // Actual per-action execution behavior (flush_cache, clear_transients,
+    // activate/deactivate_plugin, plugin_not_found, not_implemented) is
+    // exhaustively covered in ActionExecutorTest.php now that A7.1
+    // extracted that logic out — these two just prove poll() actually
+    // delegates to it and reacts correctly to success/failure, not
+    // re-testing the underlying WP calls a second time.
+    public function test_poll_delegates_to_the_action_executor_and_records_a_safe_mode_success(): void
     {
         \WP_Mock::userFunction('get_transient', ['return' => false]);
         \WP_Mock::userFunction('set_transient', ['times' => 1]);
@@ -197,97 +202,7 @@ final class WorkOrderPollerTest extends TestCase
         $this->assertSame(['success' => true, 'action' => 'flush_cache'], $poller->poll());
     }
 
-    public function test_poll_executes_clear_transients_via_a_direct_options_table_delete(): void
-    {
-        \WP_Mock::userFunction('get_transient', ['return' => false]);
-        \WP_Mock::userFunction('set_transient', ['times' => 1]);
-
-        global $wpdb;
-        $wpdb = Mockery::mock();
-        $wpdb->options = 'wp_options';
-        $wpdb->shouldReceive('query')->once()->with(Mockery::pattern('/DELETE FROM wp_options/'));
-
-        $this->stubConnectedSite('test-secret');
-        $this->stubSafeModeBookkeeping();
-        $order = $this->makeOrder(['action' => 'clear_transients']);
-        $order->hmac = Hmac::sign($order, 'test-secret');
-        $this->stubClaimResponse($order);
-
-        $poller = new WorkOrderPoller(new CapabilityRouter('6.8.0', false));
-        $this->assertSame(['success' => true, 'action' => 'clear_transients'], $poller->poll());
-    }
-
-    public function test_poll_executes_deactivate_plugin_by_resolving_the_slug_to_a_plugin_file(): void
-    {
-        \WP_Mock::userFunction('get_transient', ['return' => false]);
-        \WP_Mock::userFunction('set_transient', ['times' => 1]);
-        \WP_Mock::userFunction('get_plugins', [
-            'return' => ['yoast-seo/wp-seo.php' => ['Version' => '23.2']],
-        ]);
-        \WP_Mock::userFunction('deactivate_plugins', [
-            'args' => ['yoast-seo/wp-seo.php'],
-            'times' => 1,
-        ]);
-
-        $this->stubConnectedSite('test-secret');
-        $this->stubSafeModeBookkeeping();
-        $order = $this->makeOrder(['action' => 'deactivate_plugin', 'target' => 'yoast-seo']);
-        $order->hmac = Hmac::sign($order, 'test-secret');
-        $this->stubClaimResponse($order);
-
-        $poller = new WorkOrderPoller(new CapabilityRouter('6.8.0', false));
-        $this->assertSame(
-            ['success' => true, 'action' => 'deactivate_plugin', 'target' => 'yoast-seo'],
-            $poller->poll()
-        );
-    }
-
-    public function test_poll_executes_activate_plugin_and_reports_wp_error_as_failure(): void
-    {
-        \WP_Mock::userFunction('get_transient', ['return' => false]);
-        \WP_Mock::userFunction('set_transient', ['times' => 1]);
-        \WP_Mock::userFunction('get_plugins', [
-            'return' => ['yoast-seo/wp-seo.php' => ['Version' => '23.2']],
-        ]);
-        \WP_Mock::userFunction('activate_plugin', [
-            'args' => ['yoast-seo/wp-seo.php'],
-            'return' => 'not-an-error',
-        ]);
-        \WP_Mock::userFunction('is_wp_error', ['return' => false]);
-
-        $this->stubConnectedSite('test-secret');
-        $this->stubSafeModeBookkeeping();
-        $order = $this->makeOrder(['action' => 'activate_plugin', 'target' => 'yoast-seo']);
-        $order->hmac = Hmac::sign($order, 'test-secret');
-        $this->stubClaimResponse($order);
-
-        $poller = new WorkOrderPoller(new CapabilityRouter('6.8.0', false));
-        $this->assertSame(
-            ['success' => true, 'action' => 'activate_plugin', 'target' => 'yoast-seo'],
-            $poller->poll()
-        );
-    }
-
-    public function test_poll_reports_plugin_not_found_for_an_unknown_target_slug(): void
-    {
-        \WP_Mock::userFunction('get_transient', ['return' => false]);
-        \WP_Mock::userFunction('set_transient', ['times' => 1]);
-        \WP_Mock::userFunction('get_plugins', ['return' => []]);
-
-        $this->stubConnectedSite('test-secret');
-        $this->stubSafeModeBookkeeping();
-        $order = $this->makeOrder(['action' => 'deactivate_plugin', 'target' => 'nonexistent']);
-        $order->hmac = Hmac::sign($order, 'test-secret');
-        $this->stubClaimResponse($order);
-
-        $poller = new WorkOrderPoller(new CapabilityRouter('6.8.0', false));
-        $this->assertSame(
-            ['success' => false, 'action' => 'deactivate_plugin', 'reason' => 'plugin_not_found', 'target' => 'nonexistent'],
-            $poller->poll()
-        );
-    }
-
-    public function test_poll_reports_not_implemented_for_an_action_this_path_does_not_execute_yet(): void
+    public function test_poll_records_a_safe_mode_failure_when_the_executor_reports_failure(): void
     {
         \WP_Mock::userFunction('get_transient', ['return' => false]);
         \WP_Mock::userFunction('set_transient', ['times' => 1]);
