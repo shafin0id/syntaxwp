@@ -14,6 +14,7 @@ import {
   getWorkOrderForOrg,
   issueWorkOrder,
   issueWorkOrderWithPolicy,
+  markWorkOrderExecuted,
   workOrderToWirePayload,
 } from "./work-orders.js";
 
@@ -316,5 +317,69 @@ describe("workOrderToWirePayload", () => {
       hmac: row.hmac,
     });
     expect(verifyWorkOrderSignature(wirePayload, secret)).toBe(true);
+  });
+});
+
+describe("markWorkOrderExecuted", () => {
+  async function makeClaimedOrder() {
+    const org = await createOrg(db, { name: "mark-executed-test-org" });
+    const site = await createSite(db, {
+      orgId: org.id,
+      url: "http://mark-executed-test.example",
+      siteSecretCiphertext: "irrelevant",
+    });
+    await issueWorkOrder(db, {
+      siteId: site.id,
+      action: "flush_cache",
+      risk: "low",
+      deadMansSwitchMs: 30_000,
+      siteSecret: "secret",
+    });
+    const claimed = await claimNextPendingWorkOrder(db, site.id);
+    return claimed!.id;
+  }
+
+  it("moves claimed -> executed and stores the result", async () => {
+    const id = await makeClaimedOrder();
+    const updated = await markWorkOrderExecuted(db, id, { success: true, action: "flush_cache" });
+
+    expect(updated?.status).toBe("executed");
+    expect(updated?.result).toEqual({ success: true, action: "flush_cache" });
+    expect(updated?.executedAt).not.toBeNull();
+  });
+
+  it("stores a false-success result too — 'executed' means reported, not succeeded", async () => {
+    const id = await makeClaimedOrder();
+    const updated = await markWorkOrderExecuted(db, id, {
+      success: false,
+      reason: "not_implemented",
+    });
+
+    expect(updated?.status).toBe("executed");
+    expect(updated?.result).toEqual({ success: false, reason: "not_implemented" });
+  });
+
+  it("is a no-op (returns undefined) on an order that isn't claimed", async () => {
+    const org = await createOrg(db, { name: "mark-executed-not-claimed-org" });
+    const site = await createSite(db, {
+      orgId: org.id,
+      url: "http://mark-executed-not-claimed.example",
+      siteSecretCiphertext: "irrelevant",
+    });
+    const { row } = await issueWorkOrder(db, {
+      siteId: site.id,
+      action: "flush_cache",
+      risk: "low",
+      deadMansSwitchMs: 30_000,
+      siteSecret: "secret",
+    });
+
+    expect(await markWorkOrderExecuted(db, row.id, { success: true })).toBeUndefined();
+  });
+
+  it("cannot be reported twice", async () => {
+    const id = await makeClaimedOrder();
+    await markWorkOrderExecuted(db, id, { success: true });
+    expect(await markWorkOrderExecuted(db, id, { success: true })).toBeUndefined();
   });
 });

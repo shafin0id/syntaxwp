@@ -183,12 +183,6 @@ export async function expireStaleWorkOrders(db: Database): Promise<number> {
   return expired.length;
 }
 
-// A4.3's revert executor calls this once it has done what it can to undo an
-// executed work order. Guarded on the row currently being "executed" — the
-// same atomic-transition pattern as approve/decline above — so a work order
-// that was never executed can't be marked reverted, and one already
-// reverted (e.g. a retried dead-man's-switch fire racing a disarm) can't be
-// "re-reverted" and double-issue a corrective work order.
 // Reconstructs the exact unsigned-payload shape `issueWorkOrder` computed
 // the HMAC over (see the `unsigned` object above), from a persisted row —
 // so a claiming plugin can verify the same signature the server produced at
@@ -238,6 +232,34 @@ export async function claimNextPendingWorkOrder(
           .limit(1),
       ),
     )
+    .returning();
+  return row;
+}
+
+// A7.2's execution-report endpoint calls this once the plugin reports back
+// what happened to a claimed order — this is the call site
+// dead-mans-switch.ts's own comment on armDeadMansSwitch refers to as
+// "Task A5b adds", built here since A7.2 ("legacy outbound polling path
+// completion") is what actually needs the round-trip; A5b.1 only built
+// claiming. Guarded on the row currently being "claimed" — same atomic-
+// transition pattern as approve/decline/markWorkOrderReverted — so a
+// pending or already-executed order can't be double-reported.
+//
+// "Executed" here means "the plugin attempted this and reported back," not
+// "the action succeeded" — there's no separate "failed" status in
+// WORK_ORDER_STATUSES; the actual outcome (including a false `success`
+// flag from ActionExecutor's `not_implemented`/`plugin_not_found` results)
+// lives in `result`, matching how markWorkOrderReverted already stores an
+// arbitrarily-shaped result object.
+export async function markWorkOrderExecuted(
+  db: Database,
+  workOrderId: string,
+  result: Record<string, unknown>,
+): Promise<WorkOrderRow | undefined> {
+  const [row] = await db
+    .update(workOrders)
+    .set({ status: "executed", executedAt: new Date(), result })
+    .where(and(eq(workOrders.id, workOrderId), eq(workOrders.status, "claimed")))
     .returning();
   return row;
 }
