@@ -9,8 +9,8 @@
  * Text Domain: syntaxwp
  * Domain Path: languages
  *
- * Requires at least: 5.0
- * Requires PHP:      7.0
+ * Requires at least: 7
+ * Requires PHP:      8.1
  *
  * @package SyntaxWP\Plugin
  */
