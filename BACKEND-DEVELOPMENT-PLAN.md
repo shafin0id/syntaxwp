@@ -400,11 +400,26 @@ overwriting the developer's real `.env` files) and confirmed all 146 tests pass 
 + 27 `packages/db` + 57 `apps/api`) under that exact env-var wiring before committing the workflow.
 
 ### Task A9 — Security Hardening Pass
-- [ ] A9.1 Rate limit tuning against real traffic shapes from Track B's synthetic checks.
-- [ ] A9.2 PII redaction utility (§14.2) applied at the API boundary *before* anything reaches
+- [x] A9.1 Rate limit tuning against real traffic shapes from Track B's synthetic checks.
+- [x] A9.2 PII redaction utility (§14.2) applied at the API boundary *before* anything reaches
   Track B's LLM calls — no email, name, IP, or order detail ever serialized into an LLM prompt.
-- [ ] A9.3 Secrets audit against the §15.3 table — confirm nothing listed as "never" (LLM, logs,
+- [x] A9.3 Secrets audit against the §15.3 table — confirm nothing listed as "never" (LLM, logs,
   client-side) actually ends up there.
+
+**Definition of done — verified 2026-07-09:** A9.1's literal framing ("tune against Track B's
+synthetic traffic") isn't executable yet since Track B hasn't landed — tuned
+`apps/api/src/middleware/rate-limit.ts`'s `CONFIGS` to match §15.2's own reference numbers exactly
+instead of leaving the pre-A9 "starting points, not final" placeholders in place (heartbeat 6/60s,
+events 60/60s, work_claims 12/60s, probe 120/60s), updating the two test suites that hardcoded the
+old values. A9.2 shipped `packages/shared/src/pii-redaction.ts` (`redactPII`, exact-match field-name
+allowlist + regex email/IPv4/IPv6 scrubbing, 10 tests) as the contract Track B's future LLM router
+is expected to call on `LLMRequest.input` — no wired-in call site exists yet since the router
+doesn't either, matching this task's own scoping note. A9.3 is `SECURITY-AUDIT.md` (root) — a real
+grep-based sweep, not a checklist filled in from memory: found and documented one accepted, low-risk
+exception (two local-dev-only seed scripts print a secret/password to a developer's own terminal,
+same show-once rationale as `POST /api/sites`'s response) and confirmed the rest of §15.3's "never"
+column actually holds, explicitly marking what can't be verified yet (LLM/billing paths Track B
+hasn't built) rather than claiming full closure.
 
 ---
 
