@@ -12,6 +12,7 @@ import {
 } from "@syntaxwp/shared";
 import type { Database } from "../client.js";
 import { sites, workOrders } from "../schema/index.js";
+import { insertAuditLog } from "./audit-log.js";
 
 export type WorkOrderRow = typeof workOrders.$inferSelect;
 
@@ -86,6 +87,24 @@ export async function issueWorkOrder(
       ...(input.initialStatus ? { status: input.initialStatus } : {}),
     })
     .returning();
+
+  // A8.1 — issuance is a mutating action like any other in this file's
+  // approve/decline/claim/execute/revert lifecycle, so it gets the same
+  // audit_log row those already do. Distinguishing the two possible
+  // resulting statuses (rather than one generic "work_order_issued") lets
+  // the audit trail show *why* a human wasn't asked without needing to
+  // cross-reference the policy engine separately. A "block" decision never
+  // reaches here at all (issueWorkOrderWithPolicy returns before calling
+  // this) — nothing to audit for a work order that was never created.
+  await insertAuditLog(db, {
+    siteId: row.siteId,
+    incidentId: row.incidentId,
+    workOrderId: row.id,
+    eventType: row.status === "awaiting_approval" ? "work_order_awaiting_approval" : "work_order_issued",
+    actor: "system",
+    summary: `Issued ${row.action} (${row.risk} risk)${row.status === "awaiting_approval" ? " — awaiting approval" : ""}`,
+    evidence: { action: row.action, target: row.target, risk: row.risk },
+  });
 
   return { row, wirePayload: { ...unsigned, hmac } };
 }
