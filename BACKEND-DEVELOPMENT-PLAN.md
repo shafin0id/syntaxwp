@@ -373,8 +373,31 @@ untouched by A7), 56 in `apps/api`.
 ### Task A8 — Audit Log Wiring & Immutability
 - [x] A8.1 Every mutating action across A3–A7 writes an `audit_log` row (actor, summary in plain
   English, evidence).
-- [ ] A8.2 Verify append-only enforcement with an automated test that attempts UPDATE/DELETE and
+- [x] A8.2 Verify append-only enforcement with an automated test that attempts UPDATE/DELETE and
   expects rejection.
+
+**Definition of done — verified 2026-07-09:** A8.1's own acceptance check is
+`apps/api/src/audit-trail.test.ts` — a single test driving the real incident->issue->approve->
+claim->execute->dead-man's-switch-fire->revert->escalate pipeline through the actual HTTP routes/
+task functions (not repository calls in isolation) and asserting the exact ordered `event_type`
+sequence landed in `audit_log`, all sharing one `incident_id`. Writing that test surfaced one real
+gap: `issueWorkOrder` (`packages/db/src/repositories/work-orders.ts`) was the one mutating action in
+the A3-A7 chain that never wrote its own audit row — approve/decline/claim/execute/revert all did,
+issuance didn't. Fixed by logging `work_order_issued`/`work_order_awaiting_approval` inside
+`issueWorkOrder` itself (not `issueWorkOrderWithPolicy`), so a revert's own system-initiated
+corrective work order gets the same coverage as a policy-gated one from a single write site.
+
+A8.2's append-only test (`packages/db/src/repositories/audit-log.test.ts`, built in A2.3) already
+covered both raw-SQL and Drizzle-ORM UPDATE/DELETE rejection — nothing to add there. What was actually
+missing was CI wiring: `.github/workflows/ci.yml` had no test step at all. Added a `test` job that
+runs `supabase start` (not a bare `postgres:` service container — several existing suites sign in a
+real Supabase Auth user via `supabaseAdmin.auth.admin.createUser`, which needs GoTrue + the auth
+schema, not just Postgres) plus `docker compose up -d minio` + bucket creation via the AWS CLI
+(preinstalled on `ubuntu-latest`), writes `apps/api/.env`/`packages/db/.env` from `supabase status -o
+env`, runs migrations, then `pnpm test`. Verified for real, not just "looks right": ran every step of
+the new job manually against this session's own local stack (env vars exported directly rather than
+overwriting the developer's real `.env` files) and confirmed all 146 tests pass (62 `packages/shared`
++ 27 `packages/db` + 57 `apps/api`) under that exact env-var wiring before committing the workflow.
 
 ### Task A9 — Security Hardening Pass
 - [ ] A9.1 Rate limit tuning against real traffic shapes from Track B's synthetic checks.
