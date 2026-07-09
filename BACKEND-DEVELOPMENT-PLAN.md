@@ -235,12 +235,38 @@ atomically transition `awaiting_approval`→`pending`/`declined`, write an `audi
 on an already-actioned order. 62 tests passing across `packages/shared` and `packages/db`, plus 24 in
 `apps/api` covering the full route/auth/audit chain against local Supabase Postgres.
 
-### Task A4 — Dead Man's Switch & Snapshot/Revert
-- [ ] A4.1 `armDeadMansSwitch` / `disarmDeadMansSwitch` as Graphile Worker jobs (§9.2).
-- [ ] A4.2 Pre-action micro-snapshot capture (active plugins, options checksum, file checksums) → R2
+### Task A4 — Dead Man's Switch & Snapshot/Revert ✅ Done
+- [x] A4.1 `armDeadMansSwitch` / `disarmDeadMansSwitch` as Graphile Worker jobs (§9.2).
+- [x] A4.2 Pre-action micro-snapshot capture (active plugins, options checksum, file checksums) → R2
   (MinIO locally) + `snapshots` table row.
-- [ ] A4.3 Revert executor: restore from snapshot, confirm restored via health probe.
-- [ ] A4.4 30-day snapshot retention/cleanup job (§14.2).
+- [x] A4.3 Revert executor: restore from snapshot, confirm restored via health probe.
+- [x] A4.4 30-day snapshot retention/cleanup job (§14.2).
+
+**Definition of done — verified 2026-07-09:** Built in dependency order (A4.2 → A4.3 → A4.1 → A4.4)
+rather than numeric order, since A4.1's fire task calls A4.3's revert executor directly. `captureSnapshot`
+(`apps/api/src/snapshots/capture.ts`) records `active_plugins` from the existing `plugin_inventory` table
+(kept fresh by every heartbeat); `options_checksum`/`file_checksums` stay `null` — there's no channel yet
+to read WP options/files off a site (needs Task A7), and a fabricated checksum would be worse than none.
+`executeRevert` (`apps/api/src/snapshots/revert.ts`) always marks the work order `reverted` and writes a
+`revert_escalated_to_human` audit_log entry (§8.1: a human should look regardless of outcome); it also
+queues an automatic inverse work order — bypassing the policy engine's "ask" gate on purpose — for the
+two actions with a clean mechanical inverse today (`deactivate_plugin`/`activate_plugin`); every other
+action logs "no automatic inverse exists, manual revert required" rather than guessing. `probeSiteHealth`
+does a real HTTP GET against the site's public URL for reachability evidence — not §9.1's full
+Playwright/visual-diff pipeline (Track B). `armDeadMansSwitch`/`disarmDeadMansSwitch`
+(`apps/api/src/worker/tasks/dead-mans-switch.ts`) schedule/cancel a Graphile Worker job keyed
+`dms_{workOrderId}` via a process-lifetime `WorkerUtils` singleton; disarm calls
+`graphile_worker.remove_job` directly via raw SQL since it isn't exposed on `WorkerUtils`' JS interface.
+`deadMansSwitchFire` re-checks `status === "executed"` before acting (defensive against at-least-once
+job delivery — the real concurrency guard is `markWorkOrderReverted`'s conditioned `UPDATE`), writes its
+own `dead_mans_switch_fired` alert, then delegates to `executeRevert`. `snapshotRetentionSweep`
+(`apps/api/src/worker/tasks/snapshot-retention.ts`, daily cron) deletes DB rows past 30 days first (so
+the returned rows still carry `storageKey`), then deletes each R2/MinIO object — added
+`ObjectStorageClient.deleteObject` for this, the first caller that removes rather than reads/writes an
+object. Both are tested against real local Postgres and a real local MinIO instance (no mocks). 12 new
+tests (`snapshots.test.ts`, `capture.test.ts`, `revert.test.ts`, `dead-mans-switch.test.ts`,
+`snapshot-retention.test.ts`), bringing the running total to 81 across `packages/shared`+`packages/db`
+and 39 in `apps/api`.
 
 ### Task A5b — Hono API Surface: Work Orders & Streaming *(after A3 — needs the WorkOrder engine)*
 - [ ] A5b.1 Work-order claim endpoint.
