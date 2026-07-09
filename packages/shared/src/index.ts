@@ -8,3 +8,4 @@ export * from "./site-secret.js";
 export * from "./hmac.js";
 export * from "./work-order-signing.js";
 export * from "./policy.js";
+export * from "./pii-redaction.js";
