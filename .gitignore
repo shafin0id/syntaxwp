@@ -1,5 +1,9 @@
 node_modules
 
+# packages/plugin (Composer, not pnpm) — same rationale as node_modules
+vendor/
+.phpunit.result.cache
+
 # env files — never commit secrets, only the .example templates
 .env
 .env.*
