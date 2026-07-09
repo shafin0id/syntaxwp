@@ -268,10 +268,29 @@ tests (`snapshots.test.ts`, `capture.test.ts`, `revert.test.ts`, `dead-mans-swit
 `snapshot-retention.test.ts`), bringing the running total to 81 across `packages/shared`+`packages/db`
 and 39 in `apps/api`.
 
-### Task A5b — Hono API Surface: Work Orders & Streaming *(after A3 — needs the WorkOrder engine)*
+### Task A5b — Hono API Surface: Work Orders & Streaming *(after A3 — needs the WorkOrder engine)* ✅ Done
 - [x] A5b.1 Work-order claim endpoint.
 - [x] A5b.2 `GET /api/sites/:id/stream` (SSE, §10.3).
-- [ ] A5b.3 Rate limiting for the work_claims endpoint class (§15.2).
+- [x] A5b.3 Rate limiting for the work_claims endpoint class (§15.2).
+
+**Definition of done — verified 2026-07-09:** `POST /api/sites/:id/work-orders/claim`
+(`apps/api/src/routes/sites.ts`) discovers-and-claims in one atomic statement
+(`claimNextPendingWorkOrder`, `packages/db`) rather than a separate list-then-claim-by-id pair — the
+legacy plugin path is outbound-only (§4.1) and can't be handed a work order's id ahead of a poll, so
+there's nothing to discover separately; confirmed via user sign-off between the two designs.
+`workOrderToWirePayload` reconstructs the exact signed payload from a persisted row so the claiming
+plugin can verify its own copy of the HMAC. `GET /api/sites/:id/stream` (session-authed, org-scoped)
+is fed by one `AFTER INSERT` trigger on `audit_log` (migration `0006_audit_log_notify_trigger.sql`)
+`pg_notify`-ing every row, and one process-local `EventEmitter` (`apps/api/src/realtime/
+site-events.ts`) behind a single shared `LISTEN` connection — covers every event type for free since
+A8.1 already guarantees every mutating action writes an audit_log row, and scales horizontally since
+Postgres broadcasts NOTIFYs to every listening connection regardless of instance. The `work_claims`
+rate-limit class (defined since A5a.3, unused until now) is wired directly into the claim route, same
+as A5a.3 wired `heartbeat`/`events` inline with those routes rather than as a separate pass. 16 new
+tests (4 repo — `claimNextPendingWorkOrder`/`workOrderToWirePayload`, 6 claim-route incl. rate-limit
+enforcement and cross-site isolation, 3 LISTEN/NOTIFY round-trip, 3 SSE-route) against real local
+Postgres — no mocked trigger, emitter, or signature anywhere in this set. Running totals: 85 across
+`packages/shared`+`packages/db` (62+23), 51 in `apps/api`.
 
 ### Task A6 — WordPress Plugin: Core & Safety (`packages/plugin`)
 - [ ] A6.1 `core/`: `Heartbeat.php`, `EventQueue.php`, `ErrorCapture.php`, `WorkOrderPoller.php`,

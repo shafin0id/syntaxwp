@@ -128,4 +128,28 @@ describe("POST /api/sites/:id/work-orders/claim", () => {
     });
     expect(res.status).toBe(401);
   });
+
+  // A5b.3 — confirms the work_claims class (rate-limit.ts's generic behavior
+  // is covered on its own in middleware/rate-limit.test.ts) is actually
+  // wired to this route, not just defined and unused like it was before
+  // A5b.1 wired it in.
+  it("enforces the work_claims rate limit (20/60s) on repeated claim attempts", async () => {
+    const { site, secret } = await makeTestSite();
+    for (let i = 0; i < 20; i++) {
+      const res = await app.request(`/api/sites/${site.id}/work-orders/claim`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(signedClaimBody(site.id, secret, `claim-limit-${i}`)),
+      });
+      expect(res.status).toBe(404); // no pending order — 404 either way, we're only counting requests through
+    }
+
+    const res = await app.request(`/api/sites/${site.id}/work-orders/claim`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(signedClaimBody(site.id, secret, "claim-limit-21")),
+    });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBeTruthy();
+  });
 });
