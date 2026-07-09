@@ -31,6 +31,8 @@ use SyntaxWP\Plugin\Core\ErrorCapture;
 use SyntaxWP\Plugin\Core\EventQueue;
 use SyntaxWP\Plugin\Core\Heartbeat;
 use SyntaxWP\Plugin\Core\WorkOrderPoller;
+use SyntaxWP\Plugin\Wp7\AbilitiesRegistrar;
+use SyntaxWP\Plugin\Wp7\MCPEndpoints;
 
 /**
  * Main plugin class — bootstraps the plugin as a singleton, the same
@@ -115,6 +117,13 @@ class SyntaxWP {
         ( new ErrorCapture() )->registerHooks();
         ( new EventQueue() )->registerHooks();
         ( new WorkOrderPoller( $capability_router ) )->registerHooks();
+
+        // MCP/Abilities only make sense on the WP7-native path — a legacy
+        // site never gets an MCP surface registered for nothing.
+        if ( CapabilityRouter::WP7_NATIVE === $capability_router->detectExecutionPath() ) {
+            ( new AbilitiesRegistrar() )->registerHooks();
+            ( new MCPEndpoints() )->registerHooks();
+        }
     }
 }
 
