@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ShieldCheck, Lock, ArrowUpRight, CheckCircle2, AlertTriangle, RefreshCw, Eye } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
@@ -9,14 +9,64 @@ import { StatusPill } from "@/components/ui/status"
 import { SeverityBadge } from "@/components/ui/badge"
 import { PageHeader } from "@/components/ui/page-header"
 import { Meter } from "@/components/shared/charts"
-import { securityChecks, vulnerabilities, pluginInventory, type PluginInventoryItem } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
+
+export type PluginInventoryItem = {
+  name: string
+  slug: string
+  version: string
+  status: "active" | "inactive"
+  updateAvailable: boolean
+  latestVersion?: string
+  vulnerability?: boolean
+}
+
+export type Vulnerability = {
+  id: string
+  plugin: string
+  severity: "Critical" | "High" | "Medium" | "Low"
+  summary: string
+  status: "Patched automatically" | "Update available" | "Monitoring"
+  detected: string
+}
+
+function timeAgo(dateString: string) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
 
 export default function SecurityPage() {
   const [activeTab, setActiveTab] = useState("overview")
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState("No unexpected changes found. Files are 100% authentic.")
-  const [pluginState, setPluginState] = useState<PluginInventoryItem[]>(pluginInventory)
+  const [pluginState, setPluginState] = useState<PluginInventoryItem[]>([])
+  const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([])
+  const [securityChecks, setSecurityChecks] = useState<{label: string, value: string, status: any}[]>([])
+  const [securityData, setSecurityData] = useState<any>(null)
+
+  useEffect(() => {
+    fetch("http://localhost:4000/api/security")
+      .then((r) => r.json())
+      .then((data) => {
+        setSecurityData(data);
+        if (data.checks) setSecurityChecks(data.checks);
+        if (data.vulnerabilities) setVulnerabilities(data.vulnerabilities);
+      })
+      .catch(console.error);
+
+    fetch("http://localhost:4000/api/plugins")
+      .then((r) => r.json())
+      .then((data) => setPluginState(data))
+      .catch(console.error);
+  }, []);
 
   const tabs = [
     { id: "overview", label: "Overview" },
@@ -49,6 +99,20 @@ export default function SecurityPage() {
         {/* Tab content: Overview */}
         {activeTab === "overview" && (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {/* Autonomous Shield Badge */}
+            <div className="md:col-span-2 flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 rounded-3xl p-4">
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <div>
+                  <span className="text-sm font-semibold text-foreground block">Autonomous Shield Active</span>
+                  <span className="text-xs text-muted-foreground">Self-healing code security & threat containment enabled.</span>
+                </div>
+              </div>
+            </div>
+
             {/* Health checks checklist */}
             <Card className="md:col-span-2">
               <CardHeader title="Security Health Checks" description="Continuous defense checklist verified 2 hours ago." icon={ShieldCheck} />
@@ -65,6 +129,47 @@ export default function SecurityPage() {
               </div>
             </Card>
 
+            {/* Recent Shield Interventions */}
+            <Card className="md:col-span-2">
+              <CardHeader title="Recent Shield Interventions" description="History of autonomous healing actions and threat isolations." icon={ShieldCheck} />
+              <div className="divide-y divide-border">
+                {(!securityData?.recentActions || securityData.recentActions.length === 0) ? (
+                  <div className="px-5 py-4 text-sm text-muted-foreground">
+                    No interventions logged recently. Your site is secure.
+                  </div>
+                ) : (
+                  securityData.recentActions.map((action: any) => {
+                    let message = "";
+                    if (action.actionType === "FILE_AUTO_REPAIR") {
+                      message = `Auto-repaired modified/missing file: ${action.target}`;
+                    } else if (action.actionType === "CRITICAL_VULNERABILITY_ISOLATION") {
+                      message = `Isolated critical vulnerability on: ${action.target} (${action.details})`;
+                    } else {
+                      message = `${action.actionType} on ${action.target}: ${action.details}`;
+                    }
+                    return (
+                      <div key={action.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-muted/30 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
+                            action.status === "SUCCESS" ? "bg-emerald-500/15 text-emerald-500" : "bg-red-500/15 text-red-500"
+                          )}>
+                            {action.status}
+                          </span>
+                          <span className="text-sm font-medium text-foreground">
+                            [Shield Action] {message}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground font-mono whitespace-nowrap ml-4">
+                          {timeAgo(action.createdAt)}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </Card>
+
             {/* SSL details */}
             <Card>
               <CardHeader title="SSL Certificate" description="Protects visitor transactions and connection data." icon={Lock} />
@@ -76,9 +181,9 @@ export default function SecurityPage() {
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs font-semibold">
                     <span>Days remaining</span>
-                    <span className="font-mono">84 / 90 days</span>
+                    <span className="font-mono">{(securityData?.sslDays ?? 0) > 0 ? `${securityData.sslDays} days left` : "Expired or missing"}</span>
                   </div>
-                  <Meter value={(84 / 90) * 100} tone="success" />
+                  <Meter value={Math.min(100, Math.max(0, ((securityData?.sslDays ?? 0) / 90) * 100))} tone={(securityData?.sslDays ?? 0) > 14 ? "success" : "warning"} />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2">
                   <div>
@@ -104,9 +209,9 @@ export default function SecurityPage() {
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs font-semibold">
                     <span>Days remaining</span>
-                    <span className="font-mono">213 days left</span>
+                    <span className="font-mono">{(securityData?.domainDays ?? 0) > 0 ? `${securityData.domainDays} days left` : "Unknown"}</span>
                   </div>
-                  <Meter value={(213 / 365) * 100} tone="primary" />
+                  <Meter value={Math.min(100, Math.max(0, ((securityData?.domainDays ?? 0) / 365) * 100))} tone={(securityData?.domainDays ?? 0) > 30 ? "success" : "warning"} />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2">
                   <div>

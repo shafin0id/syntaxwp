@@ -1,13 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ShoppingCart, RefreshCw, CheckCircle, AlertTriangle, ShieldCheck, DollarSign, ArrowDownToLine } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { Card, CardHeader } from "@/components/ui/card"
 import { StatusPill } from "@/components/ui/status"
 import { PageHeader } from "@/components/ui/page-header"
 import { StatCard, Sparkline, MiniBars } from "@/components/shared/charts"
-import { storeProtection } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 export default function StoreProtectionPage() {
@@ -15,8 +14,21 @@ export default function StoreProtectionPage() {
   const [testingAll, setTestingAll] = useState(false)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testedAgo, setTestedAgo] = useState("4 minutes ago")
-  const [gatewayStates, setGatewayStates] = useState(storeProtection.paymentGateways)
+  const [gatewayStates, setGatewayStates] = useState<any[]>([])
   const [testingGateway, setTestingGateway] = useState<string | null>(null)
+  const [storeData, setStoreData] = useState<any>(null)
+
+  useEffect(() => {
+    fetch("http://localhost:4000/api/store")
+      .then((r) => r.json())
+      .then((data) => {
+        setStoreData(data);
+        if (data.paymentGateways) {
+          setGatewayStates(data.paymentGateways);
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   const tabs = [
     { id: "monitor", label: "Checkout Monitor" },
@@ -85,7 +97,7 @@ export default function StoreProtectionPage() {
               <Card className="md:col-span-2 p-5 space-y-4">
                 <h3 className="text-sm font-semibold">24h Checkout Flow Success Rate</h3>
                 <div className="pt-2">
-                  <Sparkline data={storeProtection.checkoutSuccess} height={80} color="var(--success)" />
+                  <Sparkline data={storeData?.checkoutSuccess || [100, 100, 100, 98, 100, 100, 100, 100, 96, 100, 100, 100, 100, 100, 100, 100, 100, 92, 100, 100, 100, 100, 100, 100]} height={80} color="var(--success)" />
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>24 hours ago</span>
@@ -166,19 +178,19 @@ export default function StoreProtectionPage() {
             <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
               <StatCard
                 label="30-day Protected Revenue"
-                value={`$${storeProtection.revenue.protected30d.toLocaleString()}`}
+                value={`$${(storeData?.revenue?.protected30d ?? 14280).toLocaleString()}`}
                 caption="Sales protected from plugin crashes"
                 tone="success"
               />
               <StatCard
                 label="Avg Hourly Sales"
-                value={`$${storeProtection.revenue.avgHourly}`}
+                value={`$${(storeData?.revenue?.avgHourly ?? 79)}`}
                 caption="Monitored baseline sales"
                 tone="primary"
               />
               <StatCard
                 label="Peak Buying Hours"
-                value={storeProtection.revenue.peakHours}
+                value={storeData?.revenue?.peakHours ?? "6 PM – 10 PM"}
                 caption="Enhanced checkout checking"
                 tone="info"
               />

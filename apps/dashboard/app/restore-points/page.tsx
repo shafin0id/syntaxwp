@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { History, ShieldAlert, Check, Loader2, RotateCcw, AlertTriangle, ArrowRight, Eye, PlusCircle } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { Card, CardHeader } from "@/components/ui/card"
@@ -8,7 +8,6 @@ import { StatusPill } from "@/components/ui/status"
 import { PageHeader } from "@/components/ui/page-header"
 import { Meter } from "@/components/shared/charts"
 import { Modal } from "@/components/ui/modal"
-import { restorePoints as initialPoints } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 type RestoreStep = {
@@ -18,16 +17,23 @@ type RestoreStep = {
 }
 
 export default function RestorePointsPage() {
-  const [points, setPoints] = useState(initialPoints)
+  const [points, setPoints] = useState<any[]>([])
   const [creatingBackup, setCreatingBackup] = useState(false)
   
   // Modals state
-  const [previewPoint, setPreviewPoint] = useState<typeof initialPoints[0] | null>(null)
-  const [restoreTarget, setRestoreTarget] = useState<typeof initialPoints[0] | null>(null)
+  const [previewPoint, setPreviewPoint] = useState<any | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<any | null>(null)
   
   // Restore simulation execution steps
   const [restoreStep, setRestoreStep] = useState(0) // 0: not started, 1: ongoing, 2: success
   const [simulationSteps, setSimulationSteps] = useState<RestoreStep[]>([])
+
+  useEffect(() => {
+    fetch("http://localhost:4000/api/restore-points")
+      .then((r) => r.json())
+      .then((data) => setPoints(data))
+      .catch(console.error);
+  }, []);
 
   const triggerBackup = () => {
     setCreatingBackup(true)
@@ -45,7 +51,7 @@ export default function RestorePointsPage() {
     }, 2500)
   }
 
-  const triggerRestoreSimulation = (point: typeof initialPoints[0]) => {
+  const triggerRestoreSimulation = (point: any) => {
     setRestoreStep(1)
     setSimulationSteps([
       { label: "Creating pre-action rollback snapshot", detail: "Safeguard snapshot active", state: "current" },
