@@ -15,7 +15,6 @@ import { Menu, Bell, Search, ChevronDown, Check, LogOut, User, Sparkles, AlertCi
 import { Sidebar } from "./sidebar"
 import { StatusRail } from "./status-rail"
 import { StatusDot } from "@/components/ui/status"
-import { site } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 export function AppShell({
@@ -25,7 +24,7 @@ export function AppShell({
   showRail = true,
   children,
 }: {
-  title: string
+  title?: string
   subtitle?: string
   actions?: React.ReactNode
   showRail?: boolean
@@ -282,15 +281,66 @@ export function AppShell({
 
 function SiteSwitcher() {
   const [open, setOpen] = useState(false)
-  const sites = [site.name, "Willow & Pine Studio", "Northside Coffee Co."]
+  const [sitesList, setSitesList] = useState<any[]>([])
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Read from localStorage initially
+    const stored = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
+    setSelectedSiteId(stored);
+
+    fetch("http://localhost:4000/api/sites")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setSitesList(data);
+          
+          // If stored siteId is not valid or doesn't exist, default to first site
+          const hasStored = stored && data.some((s: any) => s.id === stored);
+          if (!hasStored && data.length > 0) {
+            const defaultId = data[0].id;
+            setSelectedSiteId(defaultId);
+            localStorage.setItem("selectedSiteId", defaultId);
+            window.dispatchEvent(new Event("siteChanged"));
+          }
+        }
+      })
+      .catch(console.error);
+
+    const handleExternalChange = () => {
+      const stored = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
+      setSelectedSiteId(stored);
+    };
+    window.addEventListener("siteChanged", handleExternalChange);
+    return () => window.removeEventListener("siteChanged", handleExternalChange);
+  }, []);
+
+  const getHostname = (url: string) => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return url;
+    }
+  };
+
+  const selectedSite = sitesList.find((s) => s.id === selectedSiteId) || sitesList[0];
+  const displayName = selectedSite ? (selectedSite.title || getHostname(selectedSite.url)) : "Select Website";
+
+  const handleSelectSite = (id: string) => {
+    setSelectedSiteId(id);
+    localStorage.setItem("selectedSiteId", id);
+    window.dispatchEvent(new Event("siteChanged"));
+    setOpen(false);
+  };
+
   return (
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2.5 rounded-lg border border-border bg-card py-1.5 pl-2.5 pr-2 hover:bg-muted cursor-pointer"
       >
-        <StatusDot status="healthy" pulse />
-        <span className="max-w-40 truncate text-sm font-medium">{site.name}</span>
+        <StatusDot status={selectedSite?.healthScore < 80 ? "warning" : "healthy"} pulse />
+        <span className="max-w-40 truncate text-sm font-medium">{displayName}</span>
         <ChevronDown className="size-4 text-muted-foreground" />
       </button>
       {open ? (
@@ -300,19 +350,20 @@ function SiteSwitcher() {
             <p className="px-2.5 py-1.5 text-xs-compact font-semibold uppercase tracking-wide text-muted-foreground">
               Your websites
             </p>
-            {sites.map((s, i) => (
-              <button
-                key={s}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted cursor-pointer",
-                )}
-              >
-                <StatusDot status={i === 2 ? "warning" : "healthy"} />
-                <span className="flex-1 truncate">{s}</span>
-                {i === 0 ? <Check className="size-4 text-primary" /> : null}
-              </button>
-            ))}
+            {sitesList.map((s) => {
+              const isSelected = s.id === selectedSiteId || (!selectedSiteId && s.id === sitesList[0]?.id);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => handleSelectSite(s.id)}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted cursor-pointer"
+                >
+                  <StatusDot status={s.healthScore < 80 ? "warning" : "healthy"} />
+                  <span className="flex-1 truncate">{s.title || getHostname(s.url)}</span>
+                  {isSelected ? <Check className="size-4 text-primary" /> : null}
+                </button>
+              );
+            })}
             <button
               onClick={() => {
                 setOpen(false)

@@ -8,7 +8,7 @@
 
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   Check,
@@ -20,12 +20,33 @@ import {
   Sparkles,
   ArrowRight,
 } from "lucide-react"
-import type { Incident, IncidentStep } from "@/lib/mock-data"
+export type StepState = "done" | "current" | "upcoming"
+export type IncidentStep = {
+  label: string
+  detail?: string
+  time?: string
+  state: StepState
+}
+export type Incident = {
+  id: string
+  title: string
+  subtitle: string
+  category: string
+  status: string
+  stage: string
+  detectedAgo: string
+  fix: string
+  risk: string
+  reversible: string
+  steps: IncidentStep[]
+  evidence: { label: string; value: string }[]
+}
 import { cn } from "@/lib/utils"
 import { StatusPill } from "@/components/ui/status"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { useStream } from "@/lib/stream-context"
 
 type Phase = "awaiting" | "deploying" | "resolved" | "declined" | "restoring"
 
@@ -33,27 +54,57 @@ export function ExecutionStepperCard({
   incident,
   variant = "detail",
   hideHeader = false,
+  onActionComplete,
 }: {
   incident: Incident
   variant?: "detail" | "overview"
   hideHeader?: boolean
+  onActionComplete?: () => void
 }) {
   const isAwaiting = incident.stage === "awaiting-approval"
-  const [phase, setPhase] = useState<Phase>(isAwaiting ? "awaiting" : "resolved")
+  const [phase, setPhase] = useState<Phase>(incident.stage === "resolved" ? "resolved" : "awaiting")
   const [activeTab, setActiveTab] = useState<"progress" | "evidence">("progress")
 
-  // Build a live step list based on interaction phase
+  const { auditLogs } = useStream()
+
+  // Server state is authoritative: approval only starts deployment.
+  useEffect(() => {
+    setPhase(incident.stage === "resolved" ? "resolved" : incident.stage === "awaiting-approval" ? "awaiting" : "deploying")
+  }, [incident.stage])
+
+  // Filter logs for this incident
+  const logs = auditLogs.filter((log) => log.incidentId === incident.id)
+
+  // Compute live step states
   const steps: IncidentStep[] = incident.steps.map((s) => ({ ...s }))
+  
+  if (incident.stage !== "resolved" && logs.length > 0) {
+    for (const log of logs) {
+      if (log.eventType === "state_transition") {
+        steps[0] = { label: "Issue spotted", detail: log.summary, state: "done" as const }
+        steps[1] = { label: "Root cause found", state: "current" as const }
+      } else if (log.eventType === "diagnostic_complete") {
+        steps[1] = { label: "Root cause found", detail: log.summary, state: "done" as const }
+        steps[2] = { label: "Testing fix", state: "current" as const }
+      } else if (log.eventType === "staging_check_failed") {
+        steps[0] = { label: "Issue spotted", state: "done" as const }
+        steps[1] = { label: "Root cause found", detail: "Diagnostics complete", state: "done" as const }
+        steps[2] = { label: "Testing fix", detail: log.summary, state: "done" as const }
+      } else if (log.eventType === "fix_applied") {
+        steps[2] = { label: "Testing fix", state: "done" as const }
+        steps[3] = { label: "Promote fix", detail: log.summary, state: "done" as const }
+      }
+    }
+  }
+
+  // Override step 3 if approved/declined locally during transition
   if (isAwaiting) {
     if (phase === "deploying") {
-      steps[3] = { ...steps[3], state: "done", detail: "You approved the fix — nicely done!" }
-      steps[4] = { ...steps[4], state: "current" }
+      steps[3] = { ...steps[3], state: "current" as const, detail: "Applying approved fix..." }
     } else if (phase === "resolved") {
-      steps[3] = { ...steps[3], state: "done", detail: "You approved the fix — nicely done!" }
-      steps[4] = { ...steps[4], state: "done", time: "just now" }
-      steps[5] = { ...steps[5], state: "done", time: "just now", detail: "Checkout is working perfectly again" }
+      steps[3] = { ...steps[3], state: "done" as const, detail: "You approved the fix — nicely done!" }
     } else if (phase === "declined") {
-      steps[3] = { ...steps[3], state: "done", detail: "You declined — nothing was changed" }
+      steps[3] = { ...steps[3], state: "done" as const, detail: "You declined — nothing was changed" }
     }
   }
 
@@ -175,11 +226,25 @@ export function ExecutionStepperCard({
             {/* Right: Actions */}
             <div className="shrink-0 flex flex-col justify-center min-w-200px gap-2 pt-1 md:pt-0">
               {phase === "awaiting" && (
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5 w-full">
                   <Button
-                    onClick={() => {
+                    disabled={!isAwaiting}
+                    onClick={async () => {
                       setPhase("deploying")
-                      setTimeout(() => setPhase("resolved"), 1800)
+                      try {
+                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/approve`, {
+                          method: "POST"
+                        });
+                        if (res.ok) {
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          setPhase("awaiting")
+                          alert("Approval failed on backend.")
+                        }
+                      } catch (err) {
+                        setPhase("awaiting")
+                        alert("Error contacting api server.")
+                      }
                     }}
                     className="w-full justify-between text-xs font-semibold px-4 h-10 min-w-145px"
                     icon={Check}
@@ -187,6 +252,7 @@ export function ExecutionStepperCard({
                     Approve this fix
                   </Button>
                   <Button
+                    disabled={!isAwaiting}
                     onClick={() => setPhase("declined")}
                     variant="secondary"
                     className="w-full justify-between text-xs font-semibold px-4 h-10 min-w-145px"
@@ -194,6 +260,12 @@ export function ExecutionStepperCard({
                   >
                     Not now
                   </Button>
+                  {!isAwaiting && (
+                    <div className="flex items-center gap-1.5 text-3xs font-medium text-muted-foreground mt-1 justify-center animate-pulse">
+                      <Loader2 className="size-3 animate-spin text-primary" />
+                      <span>{incident.stage === "diagnosing" ? "Diagnosing conflict..." : "Running staging checks..."}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -211,9 +283,23 @@ export function ExecutionStepperCard({
                     <span>Fixed safely</span>
                   </div>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       setPhase("restoring")
-                      setTimeout(() => setPhase("awaiting"), 1800)
+                      try {
+                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/rollback`, {
+                          method: "POST"
+                        });
+                        if (res.ok) {
+                          setPhase("awaiting")
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          setPhase("resolved")
+                          alert("Rollback failed on backend.")
+                        }
+                      } catch (err) {
+                        setPhase("resolved")
+                        alert("Error contacting api server.")
+                      }
                     }}
                     className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-success/20 bg-white text-success text-2xs font-bold hover:bg-success-soft active:scale-95 transition-all cursor-pointer shadow-2xs shrink-0"
                   >
@@ -341,9 +427,22 @@ export function ExecutionStepperCard({
               {phase === "awaiting" && (
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Button
-                    onClick={() => {
+                    onClick={async () => {
                       setPhase("deploying")
-                      setTimeout(() => setPhase("resolved"), 1800)
+                      try {
+                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/approve`, {
+                          method: "POST"
+                        })
+                        if (res.ok) {
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          setPhase("awaiting")
+                          alert("Approval failed on backend.")
+                        }
+                      } catch {
+                        setPhase("awaiting")
+                        alert("Error contacting api server.")
+                      }
                     }}
                     className="flex-1 justify-between text-xs font-semibold px-4 h-10 min-w-145px"
                     icon={Check}
@@ -375,9 +474,23 @@ export function ExecutionStepperCard({
                     <span>{successMsg}</span>
                   </div>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       setPhase("restoring")
-                      setTimeout(() => setPhase("awaiting"), 1800)
+                      try {
+                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/rollback`, {
+                          method: "POST"
+                        });
+                        if (res.ok) {
+                          setPhase("awaiting")
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          setPhase("resolved")
+                          alert("Rollback failed on backend.")
+                        }
+                      } catch (err) {
+                        setPhase("resolved")
+                        alert("Error contacting api server.")
+                      }
                     }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-success/20 bg-white text-success text-2xs font-bold hover:bg-success-soft active:scale-95 transition-all cursor-pointer shadow-2xs shrink-0"
                   >

@@ -1,23 +1,25 @@
 "use client"
 
-import { useState } from "react"
-import { ShieldAlert, CheckCircle, ChevronDown, Activity, Sparkles } from "lucide-react"
+import { useState, useEffect } from "react"
+import { ShieldAlert, CheckCircle, ChevronDown, Activity } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { ExecutionStepperCard } from "@/components/shared/execution-stepper"
-import { Card, CardHeader } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import { StatusPill } from "@/components/ui/status"
 import { SeverityBadge } from "@/components/ui/badge"
 import { PageHeader } from "@/components/ui/page-header"
-import { activeIncident, incidents } from "@/lib/mock-data"
+import { mapApiIncidentToDashboardIncident } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useStream } from "@/lib/stream-context"
 
 export default function IncidentsPage() {
   const [activeCategory, setActiveCategory] = useState<string>("all")
   const [expandedIncident, setExpandedIncident] = useState<string | null>(null)
+  const { incidentsList, refetch: fetchIncidents } = useStream()
 
   const categories = ["all", "Plugin conflict", "Security", "Performance", "Uptime", "Checkout", "Fatal error"]
 
-  const filteredIncidents = incidents.filter((inc) => {
+  const filteredIncidents = incidentsList.filter((inc) => {
     if (activeCategory === "all") return true
     return inc.category.toLowerCase() === activeCategory.toLowerCase()
   })
@@ -58,7 +60,11 @@ export default function IncidentsPage() {
               </h2>
             </div>
             {activeList.map((inc) => (
-              <ExecutionStepperCard key={inc.id} incident={inc} />
+              <ExecutionStepperCard 
+                key={inc.id} 
+                incident={inc} 
+                onActionComplete={fetchIncidents}
+              />
             ))}
           </section>
         )}
@@ -98,10 +104,10 @@ export default function IncidentsPage() {
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-sm">{inc.title}</h3>
-                            <span className="text-xs font-medium text-muted-foreground">({inc.id})</span>
+                            <span className="text-xs font-medium text-muted-foreground">({inc.id.slice(0, 8)})</span>
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            {inc.subtitle} · {inc.resolvedAt || "Resolved"}
+                            {inc.subtitle}
                           </p>
                         </div>
                       </div>

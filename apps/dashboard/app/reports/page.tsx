@@ -1,19 +1,25 @@
 "use client"
 
-import { useState } from "react"
-import { FileText, ArrowDownToLine, Eye, Calendar, Sparkles, Loader2, Uptime, ShieldCheck, Check } from "lucide-react"
+import { useState, useEffect } from "react"
+import { FileText, ArrowDownToLine, Eye, Calendar, Sparkles, Loader2, ShieldCheck, Check } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
 import { Card, CardHeader } from "@/components/ui/card"
 import { StatusPill } from "@/components/ui/status"
 import { PageHeader } from "@/components/ui/page-header"
 import { Modal } from "@/components/ui/modal"
-import { reports as initialReports } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 export default function ReportsPage() {
-  const [reports, setReports] = useState(initialReports)
+  const [reports, setReports] = useState<any[]>([])
   const [generatingReport, setGeneratingReport] = useState(false)
-  const [selectedReport, setSelectedReport] = useState<typeof initialReports[0] | null>(null)
+  const [selectedReport, setSelectedReport] = useState<any | null>(null)
+
+  useEffect(() => {
+    fetch("http://localhost:4000/api/reports")
+      .then((r) => r.json())
+      .then((data) => setReports(data))
+      .catch(console.error);
+  }, []);
 
   const triggerGenerateReport = () => {
     setGeneratingReport(true)
