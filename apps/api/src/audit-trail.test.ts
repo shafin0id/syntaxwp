@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   db,
   sql,
@@ -35,6 +35,14 @@ describe("audit trail: incident -> work order -> execute -> revert", () => {
   const encryptionKey = loadSiteSecretEncryptionKey(env.SITE_SECRET_ENCRYPTION_KEY);
 
   it("leaves the full expected event_type sequence in audit_log", async () => {
+    const originalFetch = global.fetch;
+    vi.spyOn(global, "fetch").mockImplementation(async (url, options) => {
+      if (url.toString().includes("audit-trail-e2e.example")) {
+        return { status: 200 } as any;
+      }
+      return originalFetch(url, options);
+    });
+
     const org = await createOrg(db, { name: "audit-trail-e2e-org" });
     const siteSecret = generateSiteSecret();
     const site = await createSite(db, {

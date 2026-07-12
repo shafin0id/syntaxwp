@@ -19,122 +19,279 @@ import { AppShell } from "@/components/layout/app-shell"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
-import { site as initialSite } from "@/lib/mock-data"
 import { cn } from "@/lib/utils"
 
 export default function UpdatesPage() {
-  const [site, setSite] = useState(initialSite)
+  const [site, setSite] = useState<any>({ name: "GreenLeaf Botanicals", wpVersion: "7.0.1" })
   const [isChecking, setIsChecking] = useState(false)
   const [activeFilter, setActiveFilter] = useState("all") // "all" | "active" | "inactive"
   
   // WordPress Core Update State
-  const [wpVersion, setWpVersion] = useState(site.wpVersion)
+  const [wpVersion, setWpVersion] = useState("7.0.1")
   const [isUpdatingCore, setIsUpdatingCore] = useState(false)
   const [coreUpdated, setCoreUpdated] = useState(false)
 
   // Automated Safe-Update Stepper State
-  const [safeStep, setSafeStep] = useState(3) // Start at step 3 (testing regression)
-  const [safeStatus, setSafeStatus] = useState<"running" | "completed">("running")
+  const [safeStep, setSafeStep] = useState(5)
+  const [safeStatus, setSafeStatus] = useState<"running" | "completed">("completed")
   const [subStep, setSubStep] = useState(0)
+  const [safeUpdatesCollapsed, setSafeUpdatesCollapsed] = useState(true)
+  const [updatingPluginSlug, setUpdatingPluginSlug] = useState<string | null>(null)
 
   // Plugins state (only those with updates)
-  const [plugins, setPlugins] = useState([
-    { name: "WooCommerce", slug: "woocommerce", current: "9.1.0", latest: "9.1.2", status: "active", vulnerability: null, checked: true },
-    { name: "LiteSpeed Cache", slug: "litespeed-cache", current: "6.1.0", latest: "6.2.0.1", status: "active", vulnerability: null, checked: true },
-    { name: "Yoast SEO", slug: "yoast-seo", current: "22.8", latest: "23.0", status: "active", vulnerability: null, checked: true },
-    { name: "Contact Form 7", slug: "contact-form-7", current: "5.9", latest: "5.9.3", status: "active", vulnerability: "High", checked: true },
-    { name: "Elementor Website Builder", slug: "elementor", current: "3.21.0", latest: "3.22.1", status: "active", vulnerability: null, checked: true },
-    { name: "Wordfence Security", slug: "wordfence", current: "7.11.5", latest: "7.11.7", status: "active", vulnerability: "Medium", checked: true },
-    { name: "Akismet Anti-Spam", slug: "akismet", current: "5.3", latest: "5.3.2", status: "inactive", vulnerability: null, checked: false },
-    { name: "WP Mail SMTP", slug: "wp-mail-smtp", current: "4.0.1", latest: "4.1.0", status: "active", vulnerability: null, checked: true },
-    { name: "Advanced Custom Fields", slug: "advanced-custom-fields", current: "6.2.7", latest: "6.3.0", status: "inactive", vulnerability: null, checked: false },
-    { name: "Jetpack", slug: "jetpack", current: "13.4", latest: "13.5", status: "inactive", vulnerability: null, checked: false },
-  ])
+  const [plugins, setPlugins] = useState<any[]>([])
+
+  const loadUpdatesData = (triggerSync = false) => {
+    const siteId = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
+    if (!siteId) return;
+
+    const settingsUrl = `http://localhost:4000/api/settings?siteId=${siteId}`;
+    const updatesUrl = `http://localhost:4000/api/updates?siteId=${siteId}`;
+    const syncUrl = `http://localhost:4000/api/updates/sync?siteId=${siteId}`;
+
+    const fetchLocalData = () => {
+      fetch(settingsUrl)
+        .then((r) => r.json())
+        .then((data) => {
+          setSite(data);
+          if (data.wpVersion) {
+            setWpVersion(data.wpVersion);
+          }
+          if (data.themes) {
+            const mappedThemes = data.themes.map((t: any) => ({
+              name: t.name,
+              slug: t.slug,
+              current: t.current,
+              latest: t.latest,
+              status: t.status,
+              description: t.description,
+              updateAvailable: t.update_available ?? (t.latest !== t.current),
+              checked: false,
+            }));
+            setThemes(mappedThemes);
+          }
+        })
+        .catch(console.error);
+
+      fetch(updatesUrl)
+        .then((r) => r.json())
+        .then((data) => {
+          const mapped = data.map((p: any) => ({
+            name: p.name || p.slug.split("-").map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(" "),
+            slug: p.slug,
+            current: p.version || "1.0.0",
+            latest: p.updateVersion || "1.0.0",
+            status: p.active ? "active" : "inactive",
+            vulnerability: p.riskScore !== "unknown" ? p.riskScore : null,
+            checked: false,
+          }));
+          setPlugins(mapped);
+        })
+        .catch(console.error);
+    };
+
+    if (triggerSync) {
+      setIsChecking(true);
+      fetch(syncUrl, { method: "POST" })
+        .then((r) => r.json())
+        .then(() => {
+          setIsChecking(false);
+          fetchLocalData();
+        })
+        .catch((err) => {
+          setIsChecking(false);
+          console.error(err);
+          fetchLocalData();
+        });
+    } else {
+      fetchLocalData();
+    }
+  };
+
+  useEffect(() => {
+    loadUpdatesData(true);
+    const onSiteChanged = () => loadUpdatesData(true);
+    window.addEventListener("siteChanged", onSiteChanged);
+    return () => {
+      window.removeEventListener("siteChanged", onSiteChanged);
+    };
+  }, []);
+
   const [isUpdatingPlugins, setIsUpdatingPlugins] = useState(false)
 
   // Themes state (only those with updates)
-  const [themes, setThemes] = useState([
-    { name: "Twenty Twenty-Seven", slug: "twenty-twenty-seven", current: "1.0", latest: "1.2", status: "active", description: "Default WordPress theme. Visual style block updates & header optimization.", checked: true },
-    { name: "Twenty Twenty-Six", slug: "twenty-twenty-six", current: "1.1", latest: "1.3", status: "inactive", description: "Default WordPress theme. Performance enhancement for standard containers.", checked: false },
-    { name: "Twenty Twenty-Five", slug: "twenty-twenty-five", current: "1.2", latest: "1.4", status: "inactive", description: "Default WordPress theme. Accessibility improvements and RTL support fixes.", checked: false },
-  ])
+  const [themes, setThemes] = useState<any[]>([])
   const [isUpdatingThemes, setIsUpdatingThemes] = useState(false)
 
-  // Simulate progress of safe-update stepper
+  // Real-time tracking of safe-update stepper via polling
   useEffect(() => {
-    if (safeStatus === "completed") return
+    if (!updatingPluginSlug) return;
 
-    // Progress safeStep sequentially based on snapshot & troubleshooting mode phases
-    const t1 = setTimeout(() => setSafeStep(1), 2200) // Isolate Session
-    const t2 = setTimeout(() => setSafeStep(2), 4400) // Apply Test Update
-    const t3 = setTimeout(() => {
-      setSafeStep(3) // Playwright Verification
-      setSubStep(0)
-    }, 6600)
+    let isSubstepActive = false;
+    let substepInterval: NodeJS.Timeout | null = null;
 
-    const ts1 = setTimeout(() => setSubStep(1), 8000)
-    const ts2 = setTimeout(() => setSubStep(2), 9400)
-    const ts3 = setTimeout(() => setSubStep(3), 10800)
+    const intervalId = setInterval(() => {
+      const siteId = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
+      if (!siteId) return;
 
-    const t4 = setTimeout(() => setSafeStep(4), 12200) // Cross-Check & Release
-    const t5 = setTimeout(() => {
-      setSafeStep(5) // Complete
-      setSafeStatus("completed")
-    }, 15000)
+      fetch(`http://localhost:4000/api/updates/status?siteId=${siteId}&slug=${updatingPluginSlug}`)
+        .then((r) => r.json())
+        .then((logs: any[]) => {
+          if (!logs || logs.length === 0) return;
+
+          let currentStep = 0;
+          let status: "running" | "completed" = "running";
+          let failed = false;
+          let failReason = "";
+
+          for (const log of logs) {
+            if (log.eventType === "update_started") {
+              currentStep = 1;
+            } else if (log.eventType === "update_baseline_captured") {
+              currentStep = 2;
+            } else if (log.eventType === "update_applied") {
+              currentStep = 3;
+            } else if (log.eventType === "update_verified") {
+              currentStep = 4;
+            } else if (log.eventType === "update_success") {
+              currentStep = 5;
+              status = "completed";
+            } else if (log.eventType === "update_failed") {
+              status = "completed";
+              failed = true;
+              failReason = log.summary;
+            }
+          }
+
+          setSafeStep(currentStep);
+          setSafeStatus(status);
+
+          if (currentStep === 3 && !isSubstepActive) {
+            isSubstepActive = true;
+            let currentSub = 0;
+            substepInterval = setInterval(() => {
+              currentSub = currentSub < 3 ? currentSub + 1 : currentSub;
+              setSubStep(currentSub);
+            }, 2000);
+          }
+
+          if (status === "completed") {
+            clearInterval(intervalId);
+            if (substepInterval) clearInterval(substepInterval);
+            setUpdatingPluginSlug(null);
+            loadUpdatesData(false);
+            if (failed) {
+              alert("Safe Update failed: " + failReason);
+            }
+          }
+        })
+        .catch(console.error);
+    }, 1500);
 
     return () => {
-      clearTimeout(t1)
-      clearTimeout(t2)
-      clearTimeout(t3)
-      clearTimeout(ts1)
-      clearTimeout(ts2)
-      clearTimeout(ts3)
-      clearTimeout(t4)
-      clearTimeout(t5)
-    }
-  }, [safeStatus])
+      clearInterval(intervalId);
+      if (substepInterval) clearInterval(substepInterval);
+    };
+  }, [updatingPluginSlug]);
 
   // Check Again Handler
   const handleCheckAgain = () => {
-    setIsChecking(true)
-    setTimeout(() => {
-      setIsChecking(false)
-      // If completed, reset safe update stepper for demo
-      if (safeStatus === "completed") {
-        setSafeStep(0)
-        setSubStep(0)
-        setSafeStatus("running")
-      }
-    }, 1500)
+    loadUpdatesData(true);
   }
 
   // WordPress Core Update Handler
   const handleUpdateCore = () => {
     setIsUpdatingCore(true)
-    setTimeout(() => {
-      setIsUpdatingCore(false)
-      setCoreUpdated(true)
-      setWpVersion("7.1.0")
-      setSite(prev => ({ ...prev, wpVersion: "7.1.0" }))
-    }, 2500)
+    fetch("http://localhost:4000/api/updates/core", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ siteId: site.id }),
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        setIsUpdatingCore(false)
+        if (res.success) {
+          setCoreUpdated(true)
+          const nextVer = site.availableWpVersion || "6.7.1"
+          setWpVersion(nextVer)
+          setSite((prev: any) => ({ ...prev, wpVersion: nextVer, availableWpVersion: null }))
+        } else {
+          alert("WordPress Core Update failed: " + (res.error || "Unknown error"));
+        }
+      })
+      .catch((err) => {
+        setIsUpdatingCore(false)
+        console.error(err);
+      });
   }
+
 
   // Plugins Update Handler
   const handleUpdatePlugins = () => {
+    const checkedPlugins = plugins.filter((p) => p.checked).map((p) => p.slug)
+    if (checkedPlugins.length === 0) return;
+
     setIsUpdatingPlugins(true)
-    setTimeout(() => {
-      setIsUpdatingPlugins(false)
-      setPlugins(prev => prev.filter(p => !p.checked))
-    }, 2500)
+    setSafeUpdatesCollapsed(false)
+    setSafeStep(0)
+    setSubStep(0)
+    setSafeStatus("running")
+    setUpdatingPluginSlug(checkedPlugins[0])
+
+    fetch("http://localhost:4000/api/updates/plugins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ siteId: site.id, slugs: checkedPlugins }),
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        setIsUpdatingPlugins(false)
+        if (!res.success) {
+          alert("Plugin update failed: " + (res.error || "Unknown error"));
+          setUpdatingPluginSlug(null);
+          setSafeStatus("completed");
+        }
+      })
+      .catch((err) => {
+        setIsUpdatingPlugins(false)
+        setUpdatingPluginSlug(null);
+        setSafeStatus("completed");
+        console.error(err);
+      });
   }
 
   // Themes Update Handler
   const handleUpdateThemes = () => {
+    const checkedThemes = themes.filter((t) => t.checked).map((t) => t.slug)
+    if (checkedThemes.length === 0) return;
+
     setIsUpdatingThemes(true)
-    setTimeout(() => {
-      setIsUpdatingThemes(false)
-      setThemes(prev => prev.filter(t => !t.checked))
-    }, 2500)
+    setSafeUpdatesCollapsed(false)
+    setSafeStep(0)
+    setSubStep(0)
+    setSafeStatus("running")
+    setUpdatingPluginSlug(checkedThemes[0])
+
+    fetch("http://localhost:4000/api/updates/themes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ siteId: site.id, slugs: checkedThemes }),
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        setIsUpdatingThemes(false)
+        if (!res.success) {
+          alert("Theme update failed: " + (res.error || "Unknown error"));
+          setUpdatingPluginSlug(null);
+          setSafeStatus("completed");
+        }
+      })
+      .catch((err) => {
+        setIsUpdatingThemes(false)
+        setUpdatingPluginSlug(null);
+        setSafeStatus("completed");
+        console.error(err);
+      });
   }
 
   // Filtered plugins and themes based on tab selection
@@ -144,6 +301,7 @@ export default function UpdatesPage() {
   })
 
   const filteredThemes = themes.filter((t) => {
+    if (!t.updateAvailable) return false
     if (activeFilter === "all") return true
     return t.status === activeFilter
   })
@@ -237,9 +395,15 @@ export default function UpdatesPage() {
           `}} />
 
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground font-mono">
-              Agent Safe-Updates
-            </h2>
+            <button 
+              onClick={() => setSafeUpdatesCollapsed(!safeUpdatesCollapsed)}
+              className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground font-mono hover:text-foreground transition-colors cursor-pointer group"
+            >
+              <span>Agent Safe-Updates</span>
+              <span className="text-2xs text-muted-foreground/60 group-hover:text-muted-foreground transition-all">
+                {safeUpdatesCollapsed ? "[Show]" : "[Hide]"}
+              </span>
+            </button>
             <span className="inline-flex items-center gap-1 text-2xs font-bold bg-primary-soft text-primary border border-primary/10 px-2 py-0.5 rounded-full">
               <span className="relative flex size-1.5">
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75"></span>
@@ -249,7 +413,8 @@ export default function UpdatesPage() {
             </span>
           </div>
 
-          <Card className="p-6 bg-card rounded-3xl border border-border">
+          {!safeUpdatesCollapsed && (
+            <Card className="p-6 bg-card rounded-3xl border border-border">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
               
               {/* Left Column: Vertical timeline stepper */}
@@ -724,13 +889,14 @@ export default function UpdatesPage() {
 
             </div>
           </Card>
+          )}
         </div>
 
         {/* 2. WORDPRESS CORE */}
         <div className="space-y-3">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground font-mono">WordPress Core</h2>
           
-          {!coreUpdated ? (
+          {!coreUpdated && site.availableWpVersion && site.availableWpVersion !== wpVersion ? (
             <Card className="p-6 bg-card rounded-3xl border border-border space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                 <div className="space-y-1.5">
@@ -738,7 +904,7 @@ export default function UpdatesPage() {
                     An updated version of WordPress is available for your site.
                   </p>
                   <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
-                    WordPress 7.1.0 includes critical security hardening patches and native CSS delivery optimizations.
+                    WordPress {site.availableWpVersion} includes critical security hardening patches and native CSS delivery optimizations.
                   </p>
                 </div>
                 
@@ -757,7 +923,7 @@ export default function UpdatesPage() {
                   <ChevronRight className="size-3 text-muted-foreground/30" />
                   <div>
                     <span className="text-muted-foreground">Available version:</span>{" "}
-                    <span className="font-bold text-primary font-mono bg-primary-soft px-1.5 py-0.5 rounded-md border border-primary/10">7.1.0</span>
+                    <span className="font-bold text-primary font-mono bg-primary-soft px-1.5 py-0.5 rounded-md border border-primary/10">{site.availableWpVersion}</span>
                   </div>
                 </div>
                 
@@ -781,7 +947,7 @@ export default function UpdatesPage() {
             <Card className="p-5 bg-card rounded-3xl border border-border">
               <div className="flex items-center gap-2 text-xs text-success font-semibold">
                 <CheckCircle2 className="size-4 shrink-0" />
-                <span>WordPress Core is up to date (version 7.1.0)</span>
+                <span>WordPress Core is up to date (version {wpVersion})</span>
               </div>
             </Card>
           )}
@@ -791,7 +957,7 @@ export default function UpdatesPage() {
         <div className="space-y-3">
           <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground font-mono">Plugins</h2>
           
-          {plugins.length > 0 ? (
+          {filteredPlugins.length > 0 ? (
             <Card className="bg-card rounded-3xl border border-border overflow-hidden">
               {/* Header Bar */}
               <div className="flex items-center justify-between border-b border-border bg-accent/20 px-5 py-3.5">
@@ -867,7 +1033,7 @@ export default function UpdatesPage() {
           ) : plugins.length > 0 ? (
             <Card className="p-5 bg-card rounded-3xl border border-border">
               <div className="text-xs text-muted-foreground font-semibold text-center py-4">
-                No {activeFilter} plugins have updates available.
+                {activeFilter === "all" ? "No plugins have updates available." : `No ${activeFilter} plugins have updates available.`}
               </div>
             </Card>
           ) : (
@@ -942,9 +1108,6 @@ export default function UpdatesPage() {
                             {theme.status === "active" ? "Active Theme" : "Inactive"}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground max-w-md">
-                          {theme.description}
-                        </p>
                       </div>
                       <div className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-2.5 sm:self-center">
                         <span>Version {theme.current}</span>
@@ -959,7 +1122,7 @@ export default function UpdatesPage() {
           ) : themes.length > 0 ? (
             <Card className="p-5 bg-card rounded-3xl border border-border">
               <div className="text-xs text-muted-foreground font-semibold text-center py-4">
-                No {activeFilter} themes have updates available.
+                {activeFilter === "all" ? "No themes have updates available." : `No ${activeFilter} themes have updates available.`}
               </div>
             </Card>
           ) : (

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   db,
@@ -10,8 +11,10 @@ import {
   upsertPluginInventory,
   insertAuditLog,
   workOrderToWirePayload,
+  incidents,
   type Site,
 } from "@syntaxwp/db";
+import { sql, eq } from "drizzle-orm";
 import { encryptSiteSecret, generateSiteSecret, loadSiteSecretEncryptionKey } from "@syntaxwp/shared";
 import { env } from "../env.js";
 import { requireSession, getOrgIdFromUser, type SessionVariables } from "../auth/middleware.js";
@@ -25,6 +28,16 @@ import { subscribeToSiteEvents } from "../realtime/site-events.js";
 const SSE_PING_INTERVAL_MS = 30_000;
 
 const encryptionKey = loadSiteSecretEncryptionKey(env.SITE_SECRET_ENCRYPTION_KEY);
+
+function incidentFingerprint(siteId: string, type: string, summary: string, evidence: Record<string, unknown>): string {
+  const signature = JSON.stringify({
+    type,
+    summary: summary.replace(/\d+/g, "#").trim().toLowerCase(),
+    file: evidence.file ?? null,
+    line: evidence.line ?? null,
+  });
+  return `${siteId}_${createHash("sha256").update(signature).digest("hex")}`;
+}
 
 const CreateSiteSchema = z.object({
   url: z.string().url(),
@@ -42,13 +55,31 @@ const CreateSiteSchema = z.object({
 // the site's own version/path fields and its plugin list.
 const HeartbeatSchema = z.object({
   wp_version: z.string().optional(),
+  available_wp_version: z.string().nullable().optional(),
   execution_path: z.enum(["wp7_native", "legacy_outbound"]).optional(),
+  site_title: z.string().optional(),
   plugins: z
     .array(
       z.object({
         slug: z.string(),
+        name: z.string().optional(),
         version: z.string().optional(),
         active: z.boolean().optional(),
+        update_available: z.boolean().optional(),
+        update_version: z.string().nullable().optional(),
+      }),
+    )
+    .optional(),
+  themes: z
+    .array(
+      z.object({
+        name: z.string(),
+        slug: z.string(),
+        current: z.string(),
+        latest: z.string(),
+        status: z.enum(["active", "inactive"]),
+        description: z.string().optional(),
+        update_available: z.boolean().optional(),
       }),
     )
     .optional(),
@@ -166,14 +197,17 @@ export const sitesRoutes = new Hono<{ Variables: SessionVariables & SiteAuthVari
         return c.json({ error: "site_id in body does not match :id in URL" }, 400);
       }
 
-      const parsed = HeartbeatSchema.safeParse(c.get("siteAuthPayload"));
+      console.log("HEARTBEAT RECVD"); const parsed = HeartbeatSchema.safeParse(c.get("siteAuthPayload"));
       if (!parsed.success) {
         return c.json({ error: parsed.error.flatten().fieldErrors }, 400);
       }
 
       await recordHeartbeat(db, site.id, {
         wpVersion: parsed.data.wp_version,
+        availableWpVersion: parsed.data.available_wp_version,
         executionPath: parsed.data.execution_path,
+        themes: parsed.data.themes || [],
+        title: parsed.data.site_title,
       });
       if (parsed.data.plugins) {
         await upsertPluginInventory(db, site.id, parsed.data.plugins);
@@ -206,6 +240,54 @@ export const sitesRoutes = new Hono<{ Variables: SessionVariables & SiteAuthVari
           summary: summary ?? `Plugin-reported event: ${type}`,
           evidence,
         });
+
+        if (type === "fatal_error" || type === "php_fatal") {
+          const fingerprint = incidentFingerprint(site.id, type, summary ?? "", evidence);
+
+          const [existing] = await db
+            .select()
+            .from(incidents)
+            .where(eq(incidents.fingerprint, fingerprint))
+            .limit(1);
+
+          if (existing) {
+            if (existing.status === "resolved") {
+              await db
+                .update(incidents)
+                .set({
+                  status: "open",
+                  resolvedAt: null,
+                  detectedAt: new Date(),
+                })
+                .where(eq(incidents.id, existing.id));
+
+              await db.execute(sql`SELECT graphile_worker.add_job('fix_pipeline', json_build_object('incidentId', ${existing.id}::text))`);
+              console.log(`Reopened resolved incident from plugin event: ${existing.id} (php_fatal)`);
+            } else {
+              console.log(`Incident with fingerprint ${fingerprint} already active with status: ${existing.status}`);
+            }
+          } else {
+            const [newIncident] = await db
+              .insert(incidents)
+              .values({
+                siteId: site.id,
+                fingerprint,
+                type: "php_fatal",
+                severity: "high",
+                status: "open",
+                class: "server",
+                rootCause: "PHP Fatal Error Captured by Plugin",
+                plainEnglish: summary || "A critical error has occurred on the website.",
+                confidence: 0.99,
+              })
+              .returning();
+
+            if (newIncident) {
+              await db.execute(sql`SELECT graphile_worker.add_job('fix_pipeline', json_build_object('incidentId', ${newIncident.id}::text))`);
+              console.log(`Logged new incident from plugin event: ${newIncident.id} (php_fatal)`);
+            }
+          }
+        }
       }
 
       return c.json({ ok: true, recorded: parsed.data.events.length });

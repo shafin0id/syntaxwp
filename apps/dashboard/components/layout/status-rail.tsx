@@ -7,20 +7,35 @@
 
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { RotateCcw, Lock, RefreshCw, ShieldAlert, ChevronRight, History } from "lucide-react"
-import { site, restorePoints } from "@/lib/mock-data"
 import { HealthDial } from "@/components/shared/health-dial"
 import { StatusDot } from "@/components/ui/status"
 
 export function StatusRail() {
+  const [securityData, setSecurityData] = useState<any>(null)
+  const [restorePoints, setRestorePoints] = useState<any[]>([])
+
+  useEffect(() => {
+    fetch("http://localhost:4000/api/security")
+      .then((r) => r.json())
+      .then((data) => setSecurityData(data))
+      .catch(console.error);
+
+    fetch("http://localhost:4000/api/restore-points")
+      .then((r) => r.json())
+      .then((data) => setRestorePoints(data))
+      .catch(console.error);
+  }, []);
+
   return (
     <aside className="hidden w-rail-width shrink-0 border-l border-border bg-sidebar/40 xl:block">
       <div className="sticky top-header-height flex h-[calc(100vh-var(--spacing-header-height))] flex-col gap-5 overflow-y-auto p-5">
 
         {/* Health dial */}
         <div className="flex flex-col items-center rounded-2xl border border-border bg-card p-5">
-          <HealthDial score={site.healthScore} size={148} />
+          <HealthDial score={securityData?.healthScore ?? 95} size={148} />
           <p className="mt-3 text-center text-xs leading-relaxed text-muted-foreground text-pretty">
             Your site is in great shape. We're watching it every 60 seconds.
           </p>
@@ -40,12 +55,12 @@ export function StatusRail() {
           />
           <StatusRow
             icon={<Lock className="size-4 text-success" />}
-            label={`SSL secure · ${site.ssl.daysRemaining} days left`}
+            label={`SSL secure · ${securityData?.sslDays ?? 84} days left`}
             href="/security"
           />
           <StatusRow
             icon={<History className="size-4 text-success" />}
-            label={`Last backup: ${site.lastBackupHours}h ago`}
+            label={restorePoints.length > 0 ? `Last backup: ${restorePoints[0].time}` : "Last backup: 2h ago"}
             href="/restore-points"
           />
         </div>

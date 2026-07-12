@@ -69,7 +69,7 @@ const buttonVariants = cva(
 export interface ButtonProps
   extends ButtonPrimitive.Props,
     VariantProps<typeof buttonVariants> {
-  icon?: LucideIcon
+  icon?: React.ComponentType<{ className?: string }>
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(

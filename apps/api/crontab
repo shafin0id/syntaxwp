@@ -15,3 +15,9 @@
 # window (A4.4, §14.2). Once daily, off-peak — a 30-day window doesn't need
 # the frequent checking the shorter-lived sweeps above do.
 0 3 * * * snapshot_retention_sweep
+
+# Daily CrUX vitals collection (desktop + mobile) — low frequency, API-rate-safe.
+0 6 * * * performance_collector
+
+# 15-min synthetic TTFB pings — state-machine regression detection + auto-remediation.
+*/15 * * * * performance_ping

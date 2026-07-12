@@ -39,6 +39,15 @@ final class AbilitiesRegistrar
         'clear_transients' => ['clear-transients', 'Clear Transients', 'Deletes all transient options.'],
         'activate_plugin' => ['activate-plugin', 'Activate Plugin', 'Activates an installed plugin by slug.'],
         'deactivate_plugin' => ['deactivate-plugin', 'Deactivate Plugin', 'Deactivates an active plugin by slug.'],
+        'update_plugin' => ['update-plugin', 'Update Plugin', 'Updates an installed plugin by slug.'],
+        'update_theme' => ['update-theme', 'Update Theme', 'Updates an installed theme by slug.'],
+        'update_core' => ['update-core', 'Update Core', 'Updates WordPress core to the latest version.'],
+        'rollback_plugin' => ['rollback-plugin', 'Rollback Plugin', 'Rolls back a plugin update using SafeUpdate.'],
+        'cleanup_plugin' => ['cleanup-plugin', 'Cleanup Plugin', 'Cleans up temporary backup and SQL files after a successful update.'],
+        'read_debug_log' => ['read-debug-log', 'Read Debug Log', 'Reads the contents of the WordPress debug.log file.'],
+        'get_latest_post_url' => ['get-latest-post-url', 'Get Latest Post URL', 'Returns the URL of the latest published post on the site.'],
+        'autoload_audit' => ['autoload-audit', 'Autoload Audit', 'Checks autoloaded options size and cleans transients if over 1.5MB.'],
+        'sync_updates' => ['sync-updates', 'Sync Updates', 'Force-checks and syncs core, plugin, and theme updates.'],
     ];
 
     private ActionExecutor $executor;

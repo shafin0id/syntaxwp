@@ -51,7 +51,7 @@ export const verifySiteAuth: MiddlewareHandler<{ Variables: SiteAuthVariables }>
   }
 
   if (Math.abs(Date.now() - timestamp * 1000) > REPLAY_WINDOW_MS) {
-    return c.json({ error: "stale or future timestamp" }, 401);
+    console.error("STALE TIMESTAMP"); return c.json({ error: "stale or future timestamp" }, 401);
   }
 
   const site = await getSiteById(db, site_id);
@@ -63,16 +63,16 @@ export const verifySiteAuth: MiddlewareHandler<{ Variables: SiteAuthVariables }>
   try {
     const secret = decryptSiteSecret(site.siteSecretCiphertext, encryptionKey);
     if (!verifySignature(signedPayload, secret, hmac)) {
-      return c.json({ error: "invalid signature" }, 401);
+      console.error("INVALID SIGNATURE"); return c.json({ error: "invalid signature" }, 401);
     }
   } catch {
     // Malformed/undecryptable ciphertext is an auth failure from the
     // caller's perspective, not a server error — never a 500 here.
-    return c.json({ error: "invalid signature" }, 401);
+    console.error("INVALID SIGNATURE"); return c.json({ error: "invalid signature" }, 401);
   }
 
   if (!(await recordNonceIfUnused(db, site_id, nonce))) {
-    return c.json({ error: "replayed request" }, 401);
+    console.error("REPLAYED REQUEST"); return c.json({ error: "replayed request" }, 401);
   }
 
   c.set("site", site);

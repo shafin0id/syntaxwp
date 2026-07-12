@@ -12,13 +12,13 @@ Section references like `(§8.2)` point at the architecture doc.
 
 ## 0. Confirmed Decisions (from clarification round)
 
-| Decision | Answer |
-|---|---|
-| Repo structure | Single repo, converted to a pnpm workspace monorepo |
-| Source of truth | Architecture v1.1 + features guide; README.md superseded |
-| Plugin scope | WordPress plugin (PHP) is in scope for this plan |
-| Local WordPress site | Deferred — not required for this phase of backend work |
-| Local services | Supabase CLI (local Docker stack) for Postgres/Auth/Realtime; Graphile Worker runs against that same local Postgres |
+| Decision             | Answer                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Repo structure       | Single repo, converted to a pnpm workspace monorepo                                                                 |
+| Source of truth      | Architecture v1.1 + features guide; README.md superseded                                                            |
+| Plugin scope         | WordPress plugin (PHP) is in scope for this plan                                                                    |
+| Local WordPress site | Deferred — not required for this phase of backend work                                                              |
+| Local services       | Supabase CLI (local Docker stack) for Postgres/Auth/Realtime; Graphile Worker runs against that same local Postgres |
 
 ## 0.1 Implementation Assumptions (flagging, not asking — override any of these freely)
 
@@ -60,8 +60,8 @@ Gatekeeper, AI Inside") true: the data model, the HMAC work order engine, the po
 WordPress plugin, snapshots/revert, audit log. This is the side that must be correct and boring —
 no AI calls happen here.
 
-**Track B — Intelligence, Detection & Verification.** Everything that decides *what* to do and
-*proves* it worked: detection ingestion, the LLM router, the four-tier diagnostic stack, Playwright
+**Track B — Intelligence, Detection & Verification.** Everything that decides _what_ to do and
+_proves_ it worked: detection ingestion, the LLM router, the four-tier diagnostic stack, Playwright
 verification, WooCommerce protection, vulnerability feeds, performance/analytics, and wiring real
 data into the existing dashboard pages.
 
@@ -85,55 +85,53 @@ swapping Track B's stub auth for Track A's real middleware later is a one-import
 
 ---
 
-## Task 1 — Backend Foundation *(sequential prerequisite, blocks both tracks)* ✅ Done
+## Task 1 — Backend Foundation _(sequential prerequisite, blocks both tracks)_ ✅ Done
 
 - [x] **1.1** Convert repo to pnpm workspace monorepo. Add `pnpm-workspace.yaml`. Move `app/`,
-  `components/`, `lib/`, `public/`, Next config files into `apps/dashboard/`. Preserve git history via
-  `git mv` where possible. Root-level shared `tsconfig.base.json` + shared ESLint config.
+      `components/`, `lib/`, `public/`, Next config files into `apps/dashboard/`. Preserve git history via
+      `git mv` where possible. Root-level shared `tsconfig.base.json` + shared ESLint config.
 - [x] **1.2** Scaffold `apps/api`: Hono entrypoint (`src/index.ts`), `GET /healthz`, env loading with
-  a Zod-validated env schema per app (fail fast on missing var, not silent `undefined`).
+      a Zod-validated env schema per app (fail fast on missing var, not silent `undefined`).
 - [x] **1.3** Scaffold `packages/shared`: port `FixIntentSchema`, `IncidentDiagnosisSchema`,
-  `WorkOrder` interface + zod schema, `LLMRequest` types verbatim from §7.4 / §8.2. Published as
-  workspace package `@syntaxwp/shared`, consumed by `apps/api` and (for typed SSE payloads) by
-  `apps/dashboard`.
+      `WorkOrder` interface + zod schema, `LLMRequest` types verbatim from §7.4 / §8.2. Published as
+      workspace package `@syntaxwp/shared`, consumed by `apps/api` and (for typed SSE payloads) by
+      `apps/dashboard`.
 - [x] **1.4** Scaffold `packages/db`: Drizzle schema matching every table in §14.1 (`orgs`, `sites`,
-  `plugin_inventory`, `incidents`, `work_orders`, `snapshots`, `audit_log`,
-  `vulnerability_advisories`, `performance_snapshots`) + migration generation wired to local Supabase
-  Postgres.
+      `plugin_inventory`, `incidents`, `work_orders`, `snapshots`, `audit_log`,
+      `vulnerability_advisories`, `performance_snapshots`) + migration generation wired to local Supabase
+      Postgres.
 - [x] **1.5** Local Supabase stack: `supabase/config.toml`, `supabase start` boots Postgres+Auth+
-  Realtime in Docker. Seed script creates one dev org + one dev site with a generated `site_secret`.
+      Realtime in Docker. Seed script creates one dev org + one dev site with a generated `site_secret`.
 - [x] **1.6** Graphile Worker inside `apps/api`: worker entrypoint, empty task registry (placeholders
-  for `dead_mans_switch_fire`, vuln sync, heartbeat-drift check), confirmed running against local
-  Postgres per P5.
+      for `dead_mans_switch_fire`, vuln sync, heartbeat-drift check), confirmed running against local
+      Postgres per P5.
 - [x] **1.7** Minimal auth: Supabase Auth session between `apps/dashboard` and `apps/api`, one seeded
-  dev user.
+      dev user.
 - [x] **1.8** Root dev orchestration: `pnpm dev` runs dashboard + api + worker concurrently; documented
-  way to confirm all three are up.
+      way to confirm all three are up.
 - [x] **1.9** CI skeleton: lint + typecheck GitHub Actions workflow (no deploy yet — deploy pipeline
-  is out of scope for this plan).
+      is out of scope for this plan).
 - [x] **1.10** MinIO via Docker Compose as local R2 substitute, with a small storage-client wrapper in
-  `packages/shared` (`putObject`/`getSignedUrl`) that both local MinIO and real R2 satisfy.
+      `packages/shared` (`putObject`/`getSignedUrl`) that both local MinIO and real R2 satisfy.
 
 **Definition of done — verified 2026-07-06:** `pnpm install && pnpm dev` boots dashboard (3000) +
-api (4000) + worker (`listening for jobs` confirmed in log). `curl localhost:4000/healthz` → `200
-{"status":"ok"}`. Dashboard's `/dev/api-check` page fetches `GET /api/dev/site-health` from the API
+api (4000) + worker (`listening for jobs` confirmed in log). `curl localhost:4000/healthz` → `200 {"status":"ok"}`. Dashboard's `/dev/api-check` page fetches `GET /api/dev/site-health` from the API
 and renders the returned health score — dashboard↔api wire confirmed live, including CORS (see
 deviations below). `requireSession` middleware verified end-to-end: 401 with no token, 200 with a
 real Supabase Auth session token for the seeded dev user. Graphile Worker confirmed to have created
 its `graphile_worker` schema against local Postgres alongside all 9 Drizzle-managed tables.
 
 **Deviations found during implementation (fixed, noted for whoever picks up Track A/B next):**
+
 - `drizzle-kit generate`'s own CLI can't resolve this project's NodeNext-style `.js`-suffixed
   relative imports across schema files (it does plain CJS `require`, not full ESM resolution). Fixed
   by running it through `tsx` instead: `packages/db`'s `generate` script is
   `tsx ./node_modules/drizzle-kit/bin.cjs generate`. Transparent to anyone just running
   `pnpm --filter @syntaxwp/db generate` — only matters if you're editing that script.
 - `hono/cors` middleware was missing from `apps/api/src/app.ts` — `curl` doesn't enforce CORS so this
-  wasn't caught until testing the dashboard's actual browser fetch. Added `cors({ origin:
-  "http://localhost:3000" })`, hardcoded to the local dashboard origin for now (Task A5 will need to
+  wasn't caught until testing the dashboard's actual browser fetch. Added `cors({ origin: "http://localhost:3000" })`, hardcoded to the local dashboard origin for now (Task A5 will need to
   make this configurable once a real deployed dashboard origin exists).
-- `apps/dashboard` has pre-existing TypeScript errors (masked today by `typescript.ignoreBuildErrors:
-  true` in `next.config.mjs`) and no ESLint config at all — both predate the monorepo conversion,
+- `apps/dashboard` has pre-existing TypeScript errors (masked today by `typescript.ignoreBuildErrors: true` in `next.config.mjs`) and no ESLint config at all — both predate the monorepo conversion,
   neither is fixed by this task. CI's typecheck step only hard-gates `packages/db`, `packages/shared`,
   `apps/api`; the dashboard's typecheck and all of lint run `continue-on-error: true` until someone
   deliberately fixes that debt (not scoped to any task in this plan yet — worth a follow-up task if
@@ -146,18 +144,18 @@ its `graphile_worker` schema against local Postgres alongside all 9 Drizzle-mana
 
 ---
 
-## Pre-Step — Cross-Track Contracts *(joint, ~30–60 min, do together before splitting into tracks)*
+## Pre-Step — Cross-Track Contracts _(joint, ~30–60 min, do together before splitting into tracks)_
 
 Both tracks build against these stub interfaces starting immediately instead of waiting for the
 real implementation. Swapping a stub for the real thing later is a one-line change, not a rewrite —
 same pattern already used for B6.2's mocked ephemeral container below.
 
 - [ ] **C1** Site HMAC verify function signature (e.g. `verifySiteAuth(req): { valid: boolean, siteId?: string }`)
-  — stub always returns `valid: true`; Track A implements the real check in A5a.1.
+      — stub always returns `valid: true`; Track A implements the real check in A5a.1.
 - [ ] **C2** `PolicyDecision` interface (`allow | ask | block`) in `packages/shared` — stub always
-  returns `allow`; Track A implements the real logic in A3.3.
+      returns `allow`; Track A implements the real logic in A3.3.
 - [ ] **C3** `HealthCheckBridge` request/response contract (params + JSON shape) — Track B mocks the
-  HTTP response for B5; Track A implements the real PHP bridge in A6.1.
+      HTTP response for B5; Track A implements the real PHP bridge in A6.1.
 
 ---
 
@@ -426,93 +424,106 @@ hasn't built) rather than claiming full closure.
 ## Track B — Intelligence, Detection & Verification
 
 ### Task B2 — Detection Ingestion Endpoints & Dedup
-*Depends on:* Task 1 (shared contracts + `packages/db` client) and the C1 auth stub. Start against
+
+_Depends on:_ Task 1 (shared contracts + `packages/db` client) and the C1 auth stub. Start against
 the C1 stub immediately; swap to real HMAC verification once A5a.1 lands. Write directly against the
 `packages/db` Drizzle client for incident rows — no need to wait on A2's org/site repo layer, just
 scope every read/write by `site_id`/`org_id` by hand until A2.2/A2.3 formalize it as RLS.
-- [ ] B2.1 `POST /api/probes/anomaly`, PHP-fatal ingestion endpoint, heartbeat-drift Graphile job
-  (§5.1, sources 1–4).
-- [ ] B2.2 WooCommerce failed-checkout ingestion (source 5).
-- [ ] B2.3 Incident fingerprinting + `INSERT ... ON CONFLICT DO NOTHING` dedup (§5.3).
+
+- [x] B2.1 `POST /api/probes/anomaly`, PHP-fatal ingestion endpoint, heartbeat-drift Graphile job
+      (§5.1, sources 1–4).
+- [x] B2.2 WooCommerce failed-checkout ingestion (source 5).
+- [x] B2.3 Incident fingerprinting + `INSERT ... ON CONFLICT DO NOTHING` dedup (§5.3).
 
 ### Task B3 — Cloudflare Worker: Uptime Probes (`apps/probes`)
-- [ ] B3.1 Wrangler project scaffold, scheduled probe handler (§5.2): TTFB, WSOD detection
-  (200 + body < 500 chars), 5xx detection.
-- [ ] B3.2 KV-backed site list (stub for local dev — real KV sync is a later deploy concern).
-- [ ] B3.3 `wrangler dev` verified locally posting anomalies to local `apps/api`.
+
+- [x] B3.1 Wrangler project scaffold, scheduled probe handler (§5.2): TTFB, WSOD detection
+      (200 + body < 500 chars), 5xx detection.
+- [x] B3.2 KV-backed site list (stub for local dev — real KV sync is a later deploy concern).
+- [x] B3.3 `wrangler dev` verified locally posting anomalies to local `apps/api`.
 
 ### Task B4 — Known-Signature Matcher & LLM Router
-- [ ] B4.1 `KNOWN_SIGNATURES` regex table (§7.5) — zero-LLM-cost fast path.
-- [ ] B4.2 `routeLLM()` / `selectModel()` (§7.2), provider clients for Gemini 2.5 Flash-Lite and
-  DeepSeek V4 Pro/Flash.
-- [ ] B4.3 Prompt-injection-safe prompt builder — trusted/untrusted content separation (§7.3).
-- [ ] B4.4 All LLM outputs validated against `packages/shared` Zod schemas before use; malformed
-  output triggers a retry, not a crash.
+
+- [x] B4.1 `KNOWN_SIGNATURES` regex table (§7.5) — zero-LLM-cost fast path.
+- [x] B4.2 `routeLLM()` / `selectModel()` (§7.2), provider clients for Gemini 2.5 Flash-Lite and
+      DeepSeek V4 Pro/Flash.
+- [x] B4.3 Prompt-injection-safe prompt builder — trusted/untrusted content separation (§7.3).
+- [x] B4.4 All LLM outputs validated against `packages/shared` Zod schemas before use; malformed
+      output triggers a retry, not a crash.
 
 ### Task B5 — Diagnostic Method Stack: Tier 1 (Health Check Troubleshooting)
-*Depends on:* the C3 contract to start (mock the `HealthCheckBridge` HTTP response and build
+
+_Depends on:_ the C3 contract to start (mock the `HealthCheckBridge` HTTP response and build
 `binarySearchPluginConflict()`/the Playwright runner against it). Real integration with Task A6's
 actual `HealthCheckBridge.php` happens once A6.1 lands — coordinate with Track A before wiring that
 swap in.
-- [ ] B5.1 `HealthCheckBridge.php` — activates Health Check plugin via WP-CLI, session-isolated.
-- [ ] B5.2 `binarySearchPluginConflict()` (§6, Method 1) — O(log n) plugin conflict isolation.
-- [ ] B5.3 Local Playwright runner (concurrency = 1 per §3.3), admin-session navigation to failing URL.
+
+- [x] B5.1 `HealthCheckBridge.php` — activates Health Check plugin via WP-CLI, session-isolated.
+- [x] B5.2 `binarySearchPluginConflict()` (§6, Method 1) — O(log n) plugin conflict isolation.
+- [x] B5.3 Local Playwright runner (concurrency = 1 per §3.3), admin-session navigation to failing URL.
 
 ### Task B6 — Diagnostic Method Stack: Tiers 2–4
-- [ ] B6.1 Tier 2 — staging promotion flow: fix applied to client staging plugin instance
-  (staging-scoped HMAC key), visual + functional verification, promote-on-pass / re-diagnose-on-fail
-  (max 3 loops).
+
+- [x] B6.1 Tier 2 — staging promotion flow: fix applied to client staging plugin instance
+      (staging-scoped HMAC key), visual + functional verification, promote-on-pass / re-diagnose-on-fail
+      (max 3 loops).
 - [ ] B6.2 Tier 3 — Surgical Clone Manifest + ephemeral container flow. **Local dev note:** the real
-  ephemeral-VM spin-up is a deploy-time concern; for local dev, mock the container lifecycle behind
-  the same interface so the state machine (Task B7) can be tested end-to-end without real Docker
-  spin-up per incident.
-- [ ] B6.3 Tier 4 — production-with-consent flow: consent card data contract, low-risk-only gate,
-  ties into Task A4's micro-snapshot.
+      ephemeral-VM spin-up is a deploy-time concern; for local dev, mock the container lifecycle behind
+      the same interface so the state machine (Task B7) can be tested end-to-end without real Docker
+      spin-up per incident.
+- [x] B6.3 Tier 4 — production-with-consent flow: consent card data contract, low-risk-only gate,
+      ties into Task A4's micro-snapshot.
 
 ### Task B7 — Fix Pipeline State Machine & Verification
-*Depends on:* the C2 `PolicyDecision` stub to start — build and test the state machine's
+
+_Depends on:_ the C2 `PolicyDecision` stub to start — build and test the state machine's
 promote/revert branching against the always-`allow` stub. Real integration with Task A3's policy
 engine and Task A4's dead man's switch/snapshot executor happens once those land.
-- [ ] B7.1 §8.1 state machine as a Graphile Worker job chain (tier selection → fix apply → verify →
-  promote/revert).
-- [ ] B7.2 `visualRegression()` with `pngjs`/`pixelmatch`, 0.05% diff threshold (§9.1).
-- [ ] B7.3 Functional checks: page load, console error detection, WooCommerce synthetic checkout hook
-  (ties into Task B8).
+
+- [x] B7.1 §8.1 state machine as a Graphile Worker job chain (tier selection → fix apply → verify →
+      promote/revert).
+- [x] B7.2 `visualRegression()` with `pngjs`/`pixelmatch`, 0.05% diff threshold (§9.1).
+- [x] B7.3 Functional checks: page load, console error detection, WooCommerce synthetic checkout hook
+      (ties into Task B8).
 
 ### Task B8 — WooCommerce Protection Suite
-- [ ] B8.1 `syntheticCheckoutCheck()` Playwright job, runs every 10 min (§11.1).
-- [ ] B8.2 `WooCommerceHooks.php` event hooks — coordinate with Track A on the plugin PR (§11.2).
-- [ ] B8.3 `estimateRevenueLoss()` — peak-hour multiplier, confidence based on data point count (§11.3).
+
+- [x] B8.1 `syntheticCheckoutCheck()` Playwright job, runs every 10 min (§11.1).
+- [x] B8.2 `WooCommerceHooks.php` event hooks — coordinate with Track A on the plugin PR (§11.2).
+- [x] B8.3 `estimateRevenueLoss()` — peak-hour multiplier, confidence based on data point count (§11.3).
 
 ### Task B9 — Vulnerability Feed & Integrity Scanner
-- [ ] B9.1 OSV + GitHub Advisory sync Graphile job, every 6h (§12.1).
-- [ ] B9.2 Local checksum verification bridge against wordpress.org APIs (§12.1 Layer 2).
-- [ ] B9.3 `MicroSnapshot.php` SHA-256 file manifest baseline + heartbeat-time comparison (§12.2).
-- [ ] B9.4 SSL & domain watch (§12.3) — daily Cloudflare Worker job, WHOIS free-tier API.
+
+- [x] B9.1 OSV + GitHub Advisory sync Graphile job, every 6h (§12.1).
+- [x] B9.2 Local checksum verification bridge against wordpress.org APIs (§12.1 Layer 2).
+- [x] B9.3 `MicroSnapshot.php` SHA-256 file manifest baseline + heartbeat-time comparison (§12.2).
+- [x] B9.4 SSL & domain watch (§12.3) — daily Cloudflare Worker job, WHOIS free-tier API.
 
 ### Task B10 — Performance & Analytics
-- [ ] B10.1 Core Web Vitals fetch via Chrome UX Report API (§13.1).
-- [ ] B10.2 TTFB speed-regression alert job (§13.2).
-- [ ] B10.3 Plugin pageview tracker endpoint, GDPR-clean payload (§13.3).
-- [ ] B10.4 `calculateHealthScore()` (§10.5) surfaced via API for the dashboard sidebar.
+
+- [x] B10.1 Core Web Vitals fetch via Chrome UX Report API (§13.1).
+- [x] B10.2 TTFB speed-regression alert job (§13.2).
+- [x] B10.3 Plugin pageview tracker endpoint, GDPR-clean payload (§13.3).
+- [x] B10.4 `calculateHealthScore()` (§10.5) surfaced via API for the dashboard sidebar.
 
 ### Task B11 — Dashboard-Facing SSE & Read APIs
-- [ ] B11.1 Wire real data into `apps/dashboard`'s existing pages (`incidents`, `security`,
-  `performance`, `updates`, `restore-points`, `reports`, `store`), replacing `lib/mock-data.ts`.
-- [ ] B11.2 SSE-driven execution stepper live updates (§10.2/§10.3) against `components/shared/execution-stepper.tsx`.
-- [ ] B11.3 Persistent status sidebar wired to real health score + restore points (§10.4).
+
+- [x] B11.1 Wire real data into `apps/dashboard`'s existing pages (`incidents`, `security`,
+      `performance`, `updates`, `restore-points`, `reports`, `store`), replacing `lib/mock-data.ts`.
+- [x] B11.2 SSE-driven execution stepper live updates (§10.2/§10.3) against `components/shared/execution-stepper.tsx`.
+- [x] B11.3 Persistent status sidebar wired to real health score + restore points (§10.4).
 
 ---
 
 ## Integration & Hardening (after both tracks converge)
 
 - [ ] **I1** — End-to-end incident simulation: fake PHP fatal → detection → diagnosis → staging fix →
-  verification → production promotion → audit log entry, run against local stack only.
+      verification → production promotion → audit log entry, run against local stack only.
 - [ ] **I2** — Full security pass across the assembled pipeline: confirm no PII/content ever reaches
-  an LLM call, confirm HMAC replay protection actually rejects a replayed nonce, confirm blocked
-  actions are unreachable regardless of permission tier.
+      an LLM call, confirm HMAC replay protection actually rejects a replayed nonce, confirm blocked
+      actions are unreachable regardless of permission tier.
 - [ ] **I3** — Deployment prep: Dockerfile + PM2 ecosystem config for the `apps/api` container
-  (§16.1), left for a separate deploy-focused pass — explicitly out of scope for this plan.
+      (§16.1), left for a separate deploy-focused pass — explicitly out of scope for this plan.
 
 ---
 

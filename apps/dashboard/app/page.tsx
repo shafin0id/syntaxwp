@@ -1,3 +1,6 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   ShieldCheck,
@@ -5,7 +8,7 @@ import {
   Activity,
   Gauge,
   ShoppingCart,
-  Lock,
+  ShieldAlert,
   RefreshCw,
   ChevronRight,
   DollarSign,
@@ -15,8 +18,9 @@ import { ExecutionStepperCard } from "@/components/shared/execution-stepper"
 import { WelcomeBanner } from "@/components/shared/welcome-banner"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { activeIncident, activeDatabaseIncident, activityFeed, site } from "@/lib/mock-data"
+import { mapApiIncidentToDashboardIncident } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useStream } from "@/lib/stream-context"
 
 function MetricCard({
   title,
@@ -36,24 +40,19 @@ function MetricCard({
   return (
     <Link
       href={href}
-      className="group bg-card rounded-3xl border border-border p-5 shadow-xs hover:border-primary/20 hover:shadow-sm transition-all duration-300 flex flex-col justify-between min-h-glance-card-min-h"
+      className="group bg-card rounded-3xl border border-border p-5 shadow-xs hover:border-primary/20 hover:shadow-sm transition-all duration-300 flex flex-col justify-between min-h-[160px]"
     >
       <div className="space-y-1">
-        {/* Header */}
         <div className="flex items-center gap-2">
           <Icon className="size-4 text-muted-foreground/70" />
           <span className="text-sm font-medium text-muted-foreground">
             {title}
           </span>
         </div>
-
-        {/* Value */}
-        <div className="text-3xl-compact font-bold tracking-tight text-foreground pt-1.5 leading-none">
+        <div className="text-[28px] font-bold tracking-tight text-foreground pt-1.5 leading-none">
           {value}
         </div>
       </div>
-
-      {/* Footer / Status */}
       <div className="flex items-center gap-1.5 mt-3.5">
         <span
           className={cn(
@@ -61,7 +60,7 @@ function MetricCard({
             statusColor === "success" ? "bg-success" : "bg-primary"
           )}
         />
-        <span className="text-xs-compact text-muted-foreground truncate font-medium">
+        <span className="text-xs text-muted-foreground truncate font-medium">
           {statusText}
         </span>
       </div>
@@ -70,10 +69,39 @@ function MetricCard({
 }
 
 export default function OverviewPage() {
+  const { incidentsList, refetch: fetchIncidents } = useStream()
+  const [performanceData, setPerformanceData] = useState<any>(null)
+  const [securityData, setSecurityData] = useState<any>(null)
+  const [storeData, setStoreData] = useState<any>(null)
+
+  useEffect(() => {
+    fetch("http://localhost:4000/api/performance")
+      .then((r) => r.json())
+      .then((data) => setPerformanceData(data))
+      .catch(console.error)
+
+    fetch("http://localhost:4000/api/security")
+      .then((r) => r.json())
+      .then((data) => setSecurityData(data))
+      .catch(console.error)
+
+    fetch("http://localhost:4000/api/store")
+      .then((r) => r.json())
+      .then((data) => setStoreData(data))
+      .catch(console.error)
+  }, [])
+
+  const activeIncidents = incidentsList.filter((inc) => inc.stage !== "resolved")
+  const resolvedIncidents = incidentsList.filter((inc) => inc.stage === "resolved")
+
+  const lcp = performanceData?.metrics?.[0]?.value || "1.4s"
+  const healthScore = securityData?.healthScore || 95
+  const vulnerabilitiesCount = securityData?.vulnerabilitiesCount || 0
+
   const overviewCards = [
     {
       title: "Speed",
-      value: "1.1s",
+      value: lcp,
       icon: Gauge,
       statusText: "Fast, top 8%",
       statusColor: "success" as const,
@@ -81,31 +109,31 @@ export default function OverviewPage() {
     },
     {
       title: "Fixes",
-      value: "48",
+      value: String(resolvedIncidents.length),
       icon: Wrench,
-      statusText: "Auto-fixed this mo...",
+      statusText: "Auto-fixed history",
       statusColor: "info" as const,
       href: "/incidents",
     },
     {
       title: "Checkout",
-      value: "Ready",
+      value: activeIncidents.some((i) => i.category === "Checkout") ? "Interrupted" : "Ready",
       icon: ShoppingCart,
-      statusText: "All payment metho...",
-      statusColor: "success" as const,
+      statusText: activeIncidents.some((i) => i.category === "Checkout") ? "Checkout failure spotted" : "All payment methods online",
+      statusColor: activeIncidents.some((i) => i.category === "Checkout") ? ("info" as const) : ("success" as const),
       href: "/store",
     },
     {
       title: "Security",
-      value: "100%",
+      value: `${healthScore}%`,
       icon: ShieldCheck,
-      statusText: "Fully protected",
-      statusColor: "success" as const,
+      statusText: vulnerabilitiesCount > 0 ? `${vulnerabilitiesCount} issues logged` : "Fully protected",
+      statusColor: healthScore > 85 ? ("success" as const) : ("info" as const),
       href: "/security",
     },
     {
       title: "Uptime",
-      value: `${site.uptime30d}%`,
+      value: "99.98%",
       icon: Activity,
       statusText: "This month",
       statusColor: "success" as const,
@@ -113,7 +141,7 @@ export default function OverviewPage() {
     },
     {
       title: "Revenue",
-      value: "$14,280",
+      value: storeData?.revenue?.protected30d ? `$${storeData.revenue.protected30d.toLocaleString()}` : "$14,280",
       icon: DollarSign,
       statusText: "Estimated sales saved",
       statusColor: "success" as const,
@@ -124,10 +152,8 @@ export default function OverviewPage() {
   return (
     <AppShell>
       <div className="space-y-8 animate-tab-content">
-        {/* Row 1: Welcome Banner (Greetings at the very top) */}
         <WelcomeBanner />
 
-        {/* Row 2: Overview Cards (3 Column Grid / 2 Rows for wider cards) */}
         <section className="grid grid-cols-2 md:grid-cols-3 gap-6">
           {overviewCards.map((card) => (
             <MetricCard
@@ -142,27 +168,33 @@ export default function OverviewPage() {
           ))}
         </section>
 
-        {/* Row 3: Needs your attention / Awaiting approval (Incidents) */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="flex size-6 items-center justify-center rounded-full bg-danger text-white text-xs font-bold shadow-xs">
-              2
-            </span>
-            <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Needs your approval
-            </h2>
-          </div>
-          <div className="space-y-4">
-            <ExecutionStepperCard incident={activeDatabaseIncident} variant="overview" />
-            <ExecutionStepperCard incident={activeIncident} variant="overview" />
-          </div>
-        </section>
+        {activeIncidents.length > 0 && (
+          <section className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="flex size-6 items-center justify-center rounded-full bg-danger text-white text-xs font-bold shadow-xs">
+                {activeIncidents.length}
+              </span>
+              <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                Needs your approval
+              </h2>
+            </div>
+            <div className="space-y-4">
+              {activeIncidents.map((inc) => (
+                <ExecutionStepperCard 
+                  key={inc.id} 
+                  incident={inc} 
+                  variant="overview" 
+                  onActionComplete={fetchIncidents}
+                />
+              ))}
+            </div>
+          </section>
+        )}
 
-        {/* Row 4: What we've been doing */}
         <section className="space-y-4">
           <div className="flex items-center gap-2">
             <span className="flex size-6 items-center justify-center rounded-full bg-accent text-accent-foreground text-xs font-bold shadow-xs">
-              {activityFeed.length}
+              {resolvedIncidents.length}
             </span>
             <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
               What we've been doing
@@ -179,55 +211,25 @@ export default function OverviewPage() {
               </Link>
             </div>
             <div className="px-6 py-2 divide-y divide-border">
-              {activityFeed.map((a) => {
-                let badgeText = "Verified"
-                let badgeVariant: "success" | "primary" | "secondary" | "danger" | "processing" = "success"
-                let desc = a.text
-                let time = a.time
-
-                if (a.id === "a1") {
-                  badgeText = "Verified"
-                  badgeVariant = "success"
-                  desc = "Checkout tested across 3 payment methods"
-                  time = "4 min ago"
-                } else if (a.id === "a2") {
-                  badgeText = "Monitoring"
-                  badgeVariant = "primary"
-                  desc = "New security advisory matched to LiteSpeed Cache"
-                  time = "6 hours ago"
-                } else if (a.id === "a3") {
-                  badgeText = "Snapshot"
-                  badgeVariant = "processing"
-                  desc = "Daily safety snapshot created"
-                  time = "Today, 04:00"
-                } else if (a.id === "a4") {
-                  badgeText = "Auto-fixed"
-                  badgeVariant = "success"
-                  desc = "Homepage speed improved automatically"
-                  time = "2 days ago"
-                } else if (a.id === "a5") {
-                  badgeText = "Security"
-                  badgeVariant = "processing"
-                  desc = "Contact Form 7 security patch applied"
-                  time = "5 days ago"
-                }
-
-                return (
+              {resolvedIncidents.length === 0 ? (
+                <div className="py-6 text-sm text-muted-foreground text-center">
+                  No resolved history found. Fixes will populate here as they complete.
+                </div>
+              ) : (
+                resolvedIncidents.slice(0, 5).map((a) => (
                   <div key={a.id} className="flex items-center justify-between py-4 gap-4">
                     <div className="flex items-center gap-4 min-w-0">
-                      <Badge variant={badgeVariant}>
-                        {badgeText}
-                      </Badge>
+                      <Badge variant="success">Resolved</Badge>
                       <span className="text-sm font-medium text-foreground truncate">
-                        {desc}
+                        {a.subtitle}
                       </span>
                     </div>
                     <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
-                      {time}
+                      {a.detectedAgo}
                     </span>
                   </div>
-                )
-              })}
+                ))
+              )}
             </div>
           </Card>
         </section>
@@ -235,4 +237,3 @@ export default function OverviewPage() {
     </AppShell>
   )
 }
-
