@@ -7,7 +7,7 @@
 
 import { Check, AlertTriangle, AlertOctagon, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Status } from "@/lib/mock-data"
+export type Status = "healthy" | "warning" | "critical"
 
 export const statusConfig: Record<
   Status,

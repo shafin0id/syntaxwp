@@ -106,6 +106,10 @@ final class MCPEndpoints
             return false;
         }
 
+        if (isset($params['input']) && is_array($params['input']) && empty($params['input'])) {
+            $params['input'] = new \stdClass();
+        }
+
         $nonce = (string) $params['nonce'];
         if (get_transient('syntaxwp_mcp_nonce_' . $nonce)) {
             return false;
@@ -154,10 +158,11 @@ final class MCPEndpoints
             return ['success' => false, 'reason' => 'unknown_ability', 'ability' => $ability];
         }
 
-        $input = isset($params['input']) && is_array($params['input']) ? $params['input'] : [];
+        $input = isset($params['input']) ? (array) $params['input'] : [];
         $target = isset($input['target']) ? (string) $input['target'] : '';
+        $reason = isset($input['reason']) ? (string) $input['reason'] : '';
 
-        return $this->executor->execute($action, $target);
+        return $this->executor->execute($action, $target, $reason);
     }
 
     private function actionFromAbility(string $ability): ?string

@@ -13,9 +13,12 @@ import { ShieldCheck, LifeBuoy, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { navItems } from "./nav-config"
 import { Button } from "@/components/ui/button"
+import { useStream } from "@/lib/stream-context"
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
+  const { incidentsList } = useStream()
+  const activeCount = incidentsList.filter((inc) => inc.stage !== "resolved").length
 
   return (
     <div className="flex h-full flex-col bg-sidebar">
@@ -48,6 +51,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {navItems.map((item) => {
           const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
           const Icon = item.icon
+          const badge = item.href === "/incidents" ? (activeCount > 0 ? activeCount : null) : item.badge
           return (
             <Link
               key={item.href}
@@ -67,9 +71,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 )}
               />
               <span className="flex-1">{item.label}</span>
-              {item.badge ? (
+              {badge ? (
                 <span className="flex size-5 items-center justify-center rounded-full bg-danger text-2xs font-bold text-white">
-                  {item.badge}
+                  {badge}
                 </span>
               ) : null}
             </Link>

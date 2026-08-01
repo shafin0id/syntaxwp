@@ -1,0 +1,2 @@
+CREATE TYPE "public"."form_factor" AS ENUM('desktop', 'mobile', 'synthetic');--> statement-breakpoint
+ALTER TABLE "performance_snapshots" ADD COLUMN "form_factor" "form_factor" DEFAULT 'desktop' NOT NULL;

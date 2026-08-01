@@ -11,6 +11,7 @@ export const pluginInventory = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     siteId: uuid("site_id").notNull().references(() => sites.id),
     slug: text("slug").notNull(),
+    name: text("name"),
     version: text("version"),
     active: boolean("active"),
     updateAvailable: boolean("update_available").default(false),

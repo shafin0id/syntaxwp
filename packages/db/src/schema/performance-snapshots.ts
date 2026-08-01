@@ -1,5 +1,7 @@
-import { pgTable, uuid, integer, doublePrecision, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, integer, doublePrecision, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { sites } from "./sites.js";
+
+export const formFactorEnum = pgEnum("form_factor", ["desktop", "mobile", "synthetic"]);
 
 // §14.1 — Performance snapshots (Core Web Vitals, §13.1)
 export const performanceSnapshots = pgTable("performance_snapshots", {
@@ -10,5 +12,6 @@ export const performanceSnapshots = pgTable("performance_snapshots", {
   clsFloat: doublePrecision("cls_float"),
   fcpMs: integer("fcp_ms"),
   ttfbMs: integer("ttfb_ms"),
+  formFactor: formFactorEnum("form_factor").notNull().default("desktop"),
   collectedAt: timestamp("collected_at", { withTimezone: true }).defaultNow(),
 });

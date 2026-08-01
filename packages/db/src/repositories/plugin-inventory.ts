@@ -6,8 +6,11 @@ export type PluginInventoryEntry = typeof pluginInventory.$inferSelect;
 
 export interface HeartbeatPlugin {
   slug: string;
+  name?: string;
   version?: string;
   active?: boolean;
+  update_available?: boolean;
+  update_version?: string | null;
 }
 
 // Upserts on (site_id, slug) — a heartbeat every 60s (§4.3) reports the
@@ -24,13 +27,23 @@ export async function upsertPluginInventory(
       .values({
         siteId,
         slug: plugin.slug,
+        name: plugin.name,
         version: plugin.version,
         active: plugin.active,
+        updateAvailable: plugin.update_available ?? false,
+        updateVersion: plugin.update_version ?? null,
         recordedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: [pluginInventory.siteId, pluginInventory.slug],
-        set: { version: plugin.version, active: plugin.active, recordedAt: new Date() },
+        set: {
+          name: plugin.name,
+          version: plugin.version,
+          active: plugin.active,
+          updateAvailable: plugin.update_available ?? false,
+          updateVersion: plugin.update_version ?? null,
+          recordedAt: new Date(),
+        },
       });
   }
 }

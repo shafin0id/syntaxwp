@@ -80,7 +80,7 @@ final class Heartbeat
             // Fire-and-forget: a dropped heartbeat is corrected by the next
             // one 60s later, so it isn't worth blocking shutdown to confirm
             // delivery (§4.4's "zero visitor impact").
-            'blocking' => false,
+            'blocking' => true,
         ]);
     }
 
@@ -89,23 +89,40 @@ final class Heartbeat
      */
     public function buildPayload(string $siteId): array
     {
+        $update_core = get_site_transient('update_core');
+        $available_wp_version = null;
+        if (isset($update_core->updates) && is_array($update_core->updates)) {
+            foreach ($update_core->updates as $update) {
+                if ($update->response === 'development') {
+                    continue;
+                }
+                if (isset($update->current)) {
+                    $available_wp_version = $update->current;
+                    break;
+                }
+            }
+        }
+
         return [
             'site_id' => $siteId,
             'timestamp' => time(),
             'nonce' => wp_generate_uuid4(),
             'wp_version' => get_bloginfo('version'),
+            'available_wp_version' => $available_wp_version,
             'execution_path' => $this->capabilityRouter->detectExecutionPath(),
+            'site_title' => get_bloginfo('name'),
             'plugins' => $this->collectPlugins(),
             'theme' => $this->collectTheme(),
+            'themes' => $this->collectThemes(),
             'php_version' => PHP_VERSION,
-            'db_size_mb' => $this->calculateDbSizeMb(),
-            'autoload_size_kb' => $this->calculateAutoloadSizeKb(),
+            'db_size_mb' => (string) $this->calculateDbSizeMb(),
+            'autoload_size_kb' => (string) $this->calculateAutoloadSizeKb(),
             'is_woocommerce' => class_exists('WooCommerce'),
         ];
     }
 
     /**
-     * @return array<int, array{slug: string, version: string, active: bool}>
+     * @return array<int, array{slug: string, version: string, active: bool, update_available: bool, update_version: string|null}>
      */
     private function collectPlugins(): array
     {
@@ -113,12 +130,19 @@ final class Heartbeat
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
+        $update_plugins = get_site_transient('update_plugins');
+
         $plugins = [];
         foreach (get_plugins() as $pluginFile => $data) {
+            $slug = PluginSlug::fromFile($pluginFile);
+            $update_available = isset($update_plugins->response[$pluginFile]);
             $plugins[] = [
-                'slug' => PluginSlug::fromFile($pluginFile),
+                'slug' => $slug,
+                'name' => $data['Name'] ?? '',
                 'version' => $data['Version'] ?? '',
                 'active' => is_plugin_active($pluginFile),
+                'update_available' => $update_available,
+                'update_version' => $update_available ? ($update_plugins->response[$pluginFile]->new_version ?? '') : null,
             ];
         }
 
@@ -136,6 +160,36 @@ final class Heartbeat
             'slug' => $theme->get_stylesheet(),
             'version' => (string) $theme->get('Version'),
         ];
+    }
+
+    /**
+     * @return array<int, array{name: string, slug: string, current: string, latest: string, status: string, description: string, update_available: bool}>
+     */
+    private function collectThemes(): array
+    {
+        if (function_exists('search_theme_directories')) {
+            search_theme_directories(true);
+        }
+        foreach (wp_get_themes(array('errors' => null)) as $theme) {
+            $theme->cache_delete();
+        }
+        $update_themes = get_site_transient('update_themes');
+        $themes = [];
+
+        foreach (wp_get_themes() as $stylesheet => $theme_obj) {
+            $update_available = isset($update_themes->response[$stylesheet]);
+            $themes[] = [
+                'name' => (string) $theme_obj->get('Name'),
+                'slug' => $stylesheet,
+                'current' => (string) $theme_obj->get('Version'),
+                'latest' => (string) ($update_available ? ($update_themes->response[$stylesheet]['new_version'] ?? '') : $theme_obj->get('Version')),
+                'status' => ($stylesheet === get_stylesheet()) ? 'active' : 'inactive',
+                'description' => (string) ($theme_obj->get('Description') ?: ''),
+                'update_available' => $update_available,
+            ];
+        }
+
+        return $themes;
     }
 
     private function calculateDbSizeMb(): float

@@ -30,6 +30,8 @@ export const viewport: Viewport = {
   themeColor: '#F6F5F1',
 }
 
+import { StreamProvider } from '@/lib/stream-context'
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -42,7 +44,9 @@ export default function RootLayout({
     >
       <head />
       <body className="font-sans antialiased bg-blueprint-grid min-h-screen" suppressHydrationWarning>
-        {children}
+        <StreamProvider>
+          {children}
+        </StreamProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

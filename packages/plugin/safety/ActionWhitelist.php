@@ -32,6 +32,10 @@ final class ActionWhitelist
         'update_core',
         'delete_plugin',
         'update_option',
+        'rollback_plugin',
+        'cleanup_plugin',
+        'read_debug_log',
+        'get_latest_post_url',
     ];
 
     public static function isAllowed(string $action): bool

@@ -41,7 +41,7 @@ export async function getSiteById(db: Database, siteId: string): Promise<Site | 
 export async function recordHeartbeat(
   db: Database,
   siteId: string,
-  fields: { healthScore?: number; wpVersion?: string; executionPath?: string },
+  fields: { healthScore?: number; wpVersion?: string; executionPath?: string; availableWpVersion?: string | null; themes?: any[]; title?: string },
 ): Promise<void> {
   await db
     .update(sites)

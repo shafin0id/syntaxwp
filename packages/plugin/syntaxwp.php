@@ -147,3 +147,26 @@ class SyntaxWP {
 }
 
 SyntaxWP::instance();
+
+register_activation_hook( __FILE__, 'syntaxwp_activate' );
+register_deactivation_hook( __FILE__, 'syntaxwp_deactivate' );
+
+function syntaxwp_activate() {
+    $mu_dir = defined('WPMU_PLUGIN_DIR') ? WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins';
+    if ( ! is_dir( $mu_dir ) ) {
+        wp_mkdir_p( $mu_dir );
+    }
+    $watchdog_src = __DIR__ . '/mu-watchdog/SyntaxWPWatchdog.php';
+    $watchdog_dst = $mu_dir . '/SyntaxWPWatchdog.php';
+    if ( file_exists( $watchdog_src ) ) {
+        copy( $watchdog_src, $watchdog_dst );
+    }
+}
+
+function syntaxwp_deactivate() {
+    $mu_dir = defined('WPMU_PLUGIN_DIR') ? WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins';
+    $watchdog_dst = $mu_dir . '/SyntaxWPWatchdog.php';
+    if ( file_exists( $watchdog_dst ) ) {
+        unlink( $watchdog_dst );
+    }
+}
