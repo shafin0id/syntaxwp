@@ -9,6 +9,7 @@ export * from "./vulnerability-advisories.js";
 export * from "./performance-snapshots.js";
 export * from "./site-auth-nonces.js";
 export * from "./security-actions-log.js";
+export * from "./pageviews.js";
 
 
 // Graphile Worker's own job tables are created by Graphile Worker itself

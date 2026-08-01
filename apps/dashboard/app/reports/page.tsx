@@ -16,31 +16,44 @@ export default function ReportsPage() {
   const [generatingReport, setGeneratingReport] = useState(false)
   const [selectedReport, setSelectedReport] = useState<any | null>(null)
 
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/api/reports`)
+  const fetchReports = () => {
+    return fetch(`${API_BASE_URL}/api/reports`)
       .then((r) => r.json())
       .then((data) => setReports(data))
       .catch(console.error);
+  }
+
+  useEffect(() => {
+    fetchReports();
   }, []);
 
   const triggerGenerateReport = () => {
     setGeneratingReport(true)
-    setTimeout(() => {
-      const newReport = {
-        id: `r-${Date.now()}`,
-        title: "July 2025 · Monthly health report",
-        period: "Jul 1 – Jul 31",
-        issues: 0,
-        uptime: "100.00%",
-        ready: true,
-      }
-      setReports((prev) => [newReport, ...prev])
-      setGeneratingReport(false)
-    }, 2000)
+    // The current month's report is already computed live by GET
+    // /api/reports (it's always the first entry) — "generating" it is
+    // just re-pulling the latest numbers, not fabricating a new row.
+    fetchReports().finally(() => setGeneratingReport(false))
   }
 
-  const downloadReportPdf = (title: string) => {
-    alert(`Generating PDF download for: "${title}". PDF compiled with standard WooCommerce billing/health telemetry template.`)
+  const downloadReport = async (report: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reports/${report.id}/export`)
+      if (!res.ok) {
+        alert("Could not generate the export for this report.")
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${report.id}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert("Error contacting api server.")
+    }
   }
 
   return (
@@ -111,9 +124,9 @@ export default function ReportsPage() {
                   View Details
                 </button>
                 <button
-                  onClick={() => downloadReportPdf(rep.title)}
+                  onClick={() => downloadReport(rep)}
                   className="rounded-lg border border-border p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer"
-                  aria-label="Download PDF"
+                  aria-label="Download CSV"
                 >
                   <ArrowDownToLine className="size-3.5" />
                 </button>
@@ -174,11 +187,11 @@ export default function ReportsPage() {
             {/* Download Action Footer */}
             <div className="pt-2">
               <button
-                onClick={() => downloadReportPdf(selectedReport.title)}
+                onClick={() => downloadReport(selectedReport)}
                 className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-primary py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/95 transition-all cursor-pointer"
               >
                 <ArrowDownToLine className="size-4" />
-                Download Complete PDF Report
+                Download CSV Report
               </button>
             </div>
           </div>

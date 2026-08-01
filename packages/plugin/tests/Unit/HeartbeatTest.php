@@ -14,6 +14,9 @@ final class HeartbeatTest extends TestCase
 {
     private function stubInventory(): void
     {
+        \WP_Mock::userFunction('get_site_transient', ['return' => false]);
+        \WP_Mock::userFunction('get_bloginfo', ['args' => ['name'], 'return' => 'Test Site']);
+        \WP_Mock::userFunction('wp_get_themes', ['return' => []]);
         \WP_Mock::userFunction('get_plugins', [
             'return' => [
                 'yoast-seo/wp-seo.php' => ['Version' => '23.2'],
@@ -63,8 +66,8 @@ final class HeartbeatTest extends TestCase
         $this->assertSame(PHP_VERSION, $payload['php_version']);
         $this->assertSame(
             [
-                ['slug' => 'yoast-seo', 'version' => '23.2', 'active' => true],
-                ['slug' => 'hello', 'version' => '1.7', 'active' => false],
+                ['slug' => 'yoast-seo', 'name' => '', 'version' => '23.2', 'active' => true, 'update_available' => false, 'update_version' => null],
+                ['slug' => 'hello', 'name' => '', 'version' => '1.7', 'active' => false, 'update_available' => false, 'update_version' => null],
             ],
             $payload['plugins']
         );
@@ -93,6 +96,12 @@ final class HeartbeatTest extends TestCase
         \WP_Mock::userFunction('wp_json_encode', [
             'return_arg' => 0,
         ]);
+        \WP_Mock::userFunction('is_wp_error', ['return' => false]);
+        \WP_Mock::userFunction('wp_remote_retrieve_body', ['return' => '{"ok":true,"kill_switch_active":false}']);
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_kill_switch_active', false],
+            'return' => false,
+        ]);
 
         $captured = null;
         \WP_Mock::userFunction('wp_remote_post', [
@@ -107,12 +116,62 @@ final class HeartbeatTest extends TestCase
 
         [$url, $args] = $captured;
         $this->assertSame('https://api.syntaxwp.com/api/sites/site-123/heartbeat', $url);
-        $this->assertFalse($args['blocking']);
+        $this->assertTrue($args['blocking']);
 
         $sentPayload = $args['body'];
         $hmac = $sentPayload['hmac'];
         unset($sentPayload['hmac']);
         $this->assertTrue(Hmac::verify($sentPayload, 'test-secret', $hmac));
+    }
+
+    public function test_send_activates_the_local_kill_switch_when_the_backend_reports_it_active(): void
+    {
+        \WP_Mock::userFunction('get_bloginfo', ['args' => ['version'], 'return' => '7.1.0']);
+        \WP_Mock::userFunction('wp_generate_uuid4', ['return' => 'test-nonce']);
+        $this->stubInventory();
+        $this->stubDbSizeQueries();
+
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_site_id'], 'return' => 'site-123']);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_site_secret'], 'return' => 'test-secret']);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_api_base_url', 'https://api.syntaxwp.com'], 'return' => 'https://api.syntaxwp.com']);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_kill_switch_active', false], 'return' => false]);
+        \WP_Mock::userFunction('wp_json_encode', ['return_arg' => 0]);
+        \WP_Mock::userFunction('wp_remote_post', ['return' => []]);
+        \WP_Mock::userFunction('is_wp_error', ['return' => false]);
+        \WP_Mock::userFunction('wp_remote_retrieve_body', ['return' => '{"ok":true,"kill_switch_active":true}']);
+        \WP_Mock::userFunction('update_option', [
+            'args' => ['syntaxwp_kill_switch_active', true, false],
+            'times' => 1,
+        ]);
+
+        $heartbeat = new Heartbeat(new CapabilityRouter('7.1.0', true));
+        $heartbeat->send();
+        $this->assertConditionsMet();
+    }
+
+    public function test_send_deactivates_a_previously_active_local_kill_switch_once_the_backend_clears_it(): void
+    {
+        \WP_Mock::userFunction('get_bloginfo', ['args' => ['version'], 'return' => '7.1.0']);
+        \WP_Mock::userFunction('wp_generate_uuid4', ['return' => 'test-nonce']);
+        $this->stubInventory();
+        $this->stubDbSizeQueries();
+
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_site_id'], 'return' => 'site-123']);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_site_secret'], 'return' => 'test-secret']);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_api_base_url', 'https://api.syntaxwp.com'], 'return' => 'https://api.syntaxwp.com']);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_kill_switch_active', false], 'return' => true]);
+        \WP_Mock::userFunction('wp_json_encode', ['return_arg' => 0]);
+        \WP_Mock::userFunction('wp_remote_post', ['return' => []]);
+        \WP_Mock::userFunction('is_wp_error', ['return' => false]);
+        \WP_Mock::userFunction('wp_remote_retrieve_body', ['return' => '{"ok":true,"kill_switch_active":false}']);
+        \WP_Mock::userFunction('update_option', [
+            'args' => ['syntaxwp_kill_switch_active', false, false],
+            'times' => 1,
+        ]);
+
+        $heartbeat = new Heartbeat(new CapabilityRouter('7.1.0', true));
+        $heartbeat->send();
+        $this->assertConditionsMet();
     }
 
     public function test_send_is_a_no_op_when_the_site_is_not_yet_connected(): void

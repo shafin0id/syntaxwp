@@ -36,6 +36,7 @@ final class ActionWhitelist
         'cleanup_plugin',
         'read_debug_log',
         'get_latest_post_url',
+        'verify_core_integrity',
     ];
 
     public static function isAllowed(string $action): bool

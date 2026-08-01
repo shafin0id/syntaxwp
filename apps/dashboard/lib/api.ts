@@ -6,6 +6,7 @@ export function mapApiIncidentToDashboardIncident(apiInc: any): any {
   else if (apiInc.status === "diagnosing") stage = "diagnosing";
   else if (apiInc.status === "fixing" || apiInc.status === "testing") stage = "testing";
   else if (apiInc.status === "escalated") stage = "awaiting-approval";
+  else if (apiInc.status === "declined") stage = "declined";
 
   let category: any = "Fatal error";
   if (apiInc.type === "checkout_failure") category = "Checkout";

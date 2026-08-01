@@ -70,7 +70,15 @@ export function ExecutionStepperCard({
 
   // Server state is authoritative: approval only starts deployment.
   useEffect(() => {
-    setPhase(incident.stage === "resolved" ? "resolved" : incident.stage === "awaiting-approval" ? "awaiting" : "deploying")
+    setPhase(
+      incident.stage === "resolved"
+        ? "resolved"
+        : incident.stage === "declined"
+          ? "declined"
+          : incident.stage === "awaiting-approval"
+            ? "awaiting"
+            : "deploying"
+    )
   }, [incident.stage])
 
   // Filter logs for this incident
@@ -254,7 +262,19 @@ export function ExecutionStepperCard({
                   </Button>
                   <Button
                     disabled={!isAwaiting}
-                    onClick={() => setPhase("declined")}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/decline`, { method: "POST" })
+                        if (res.ok) {
+                          setPhase("declined")
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          alert("Decline failed on backend.")
+                        }
+                      } catch {
+                        alert("Error contacting api server.")
+                      }
+                    }}
                     variant="secondary"
                     className="w-full justify-between text-xs font-semibold px-4 h-10 min-w-145px"
                     icon={X}
@@ -323,7 +343,19 @@ export function ExecutionStepperCard({
                     No changes made.
                   </p>
                   <button
-                    onClick={() => setPhase("awaiting")}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/reconsider`, { method: "POST" })
+                        if (res.ok) {
+                          setPhase("awaiting")
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          alert("Reconsider failed on backend.")
+                        }
+                      } catch {
+                        alert("Error contacting api server.")
+                      }
+                    }}
                     className="text-xs-compact font-semibold text-primary hover:underline cursor-pointer"
                   >
                     Reconsider
@@ -451,7 +483,19 @@ export function ExecutionStepperCard({
                     Approve this fix
                   </Button>
                   <Button
-                    onClick={() => setPhase("declined")}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/decline`, { method: "POST" })
+                        if (res.ok) {
+                          setPhase("declined")
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          alert("Decline failed on backend.")
+                        }
+                      } catch {
+                        alert("Error contacting api server.")
+                      }
+                    }}
                     variant="secondary"
                     className="flex-1 justify-between text-xs font-semibold px-4 h-10 min-w-145px"
                     icon={X}
@@ -514,7 +558,19 @@ export function ExecutionStepperCard({
                     No changes were made. We'll remind you later.
                   </p>
                   <button
-                    onClick={() => setPhase("awaiting")}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/reconsider`, { method: "POST" })
+                        if (res.ok) {
+                          setPhase("awaiting")
+                          if (onActionComplete) onActionComplete()
+                        } else {
+                          alert("Reconsider failed on backend.")
+                        }
+                      } catch {
+                        alert("Error contacting api server.")
+                      }
+                    }}
                     className="text-xs-compact font-semibold text-primary hover:underline cursor-pointer"
                   >
                     Reconsider

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SyntaxWP\Plugin\Wp7;
 
 use SyntaxWP\Plugin\Core\PluginSlug;
+use SyntaxWP\Plugin\Safety\IntegrityScanner;
 use SyntaxWP\Plugin\Safety\SafeUpdate;
 
 /**
@@ -76,6 +77,9 @@ final class ActionExecutor
 
             case 'sync_updates':
                 return $this->syncUpdates();
+
+            case 'verify_core_integrity':
+                return IntegrityScanner::verifyCoreFiles();
 
             default:
                 return ['success' => false, 'action' => $action, 'reason' => 'not_implemented'];

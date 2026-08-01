@@ -1,4 +1,3 @@
-import type { Task } from "graphile-worker";
 import { deadMansSwitchFire } from "./dead-mans-switch.js";
 import { siteAuthNoncePrune } from "./site-auth-nonce-prune.js";
 import { snapshotRetentionSweep } from "./snapshot-retention.js";
@@ -10,10 +9,8 @@ import { performancePing } from "./performance-ping.js";
 import { syntheticCheckoutCheck } from "./synthetic-checkout.js";
 import { fixPipeline } from "./fix-pipeline.js";
 import { safeUpdateVerifier } from "./safe-update-verifier.js";
-
-const heartbeatDriftCheck: Task = async () => {
-  console.log("[placeholder] heartbeat_drift_check");
-};
+import { heartbeatDriftCheck } from "./heartbeat-drift.js";
+import { coreIntegrityCheck } from "./core-integrity-check.js";
 
 export const taskList = {
   dead_mans_switch_fire: deadMansSwitchFire,
@@ -25,6 +22,7 @@ export const taskList = {
   fix_pipeline: fixPipeline,
   safe_update_verification: safeUpdateVerifier,
   heartbeat_drift_check: heartbeatDriftCheck,
+  core_integrity_check: coreIntegrityCheck,
   site_auth_nonce_prune: siteAuthNoncePrune,
   work_order_expiry_sweep: workOrderExpirySweep,
   snapshot_retention_sweep: snapshotRetentionSweep,

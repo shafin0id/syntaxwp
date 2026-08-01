@@ -12,23 +12,17 @@ import { Meter } from "@/components/shared/charts"
 import { Modal } from "@/components/ui/modal"
 import { cn } from "@/lib/utils"
 
-type RestoreStep = {
-  label: string
-  detail?: string
-  state: "done" | "current" | "upcoming"
-}
-
 export default function RestorePointsPage() {
   const [points, setPoints] = useState<any[]>([])
   const [creatingBackup, setCreatingBackup] = useState(false)
-  
+
   // Modals state
   const [previewPoint, setPreviewPoint] = useState<any | null>(null)
   const [restoreTarget, setRestoreTarget] = useState<any | null>(null)
-  
-  // Restore simulation execution steps
-  const [restoreStep, setRestoreStep] = useState(0) // 0: not started, 1: ongoing, 2: success
-  const [simulationSteps, setSimulationSteps] = useState<RestoreStep[]>([])
+
+  // Restore execution state
+  const [restoreStep, setRestoreStep] = useState(0) // 0: not started, 1: in progress, 2: success
+  const [restoreError, setRestoreError] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/restore-points`)
@@ -53,70 +47,29 @@ export default function RestorePointsPage() {
     }, 2500)
   }
 
-  const triggerRestoreSimulation = (point: any) => {
+  const triggerRestore = async (point: any) => {
     setRestoreStep(1)
-    setSimulationSteps([
-      { label: "Creating pre-action rollback snapshot", detail: "Safeguard snapshot active", state: "current" },
-      { label: "Decompressing snapshot archive", state: "upcoming" },
-      { label: "Rolling database entries to timestamp", state: "upcoming" },
-      { label: "Verifying live checkout forms response", state: "upcoming" },
-      { label: "Restore point promotion validated", state: "upcoming" },
-    ])
-
-    // Step 1 -> 2
-    setTimeout(() => {
-      setSimulationSteps((prev) => [
-        { ...prev[0], state: "done" },
-        { ...prev[1], state: "current", detail: "Reading database and file tables" },
-        ...prev.slice(2),
-      ])
-      // Step 2 -> 3
-      setTimeout(() => {
-        setSimulationSteps((prev) => [
-          prev[0],
-          { ...prev[1], state: "done" },
-          { ...prev[2], state: "current", detail: "Updating options and plugins mapping" },
-          ...prev.slice(3),
-        ])
-        // Step 3 -> 4
-        setTimeout(() => {
-          setSimulationSteps((prev) => [
-            prev[0],
-            prev[1],
-            { ...prev[2], state: "done" },
-            { ...prev[3], state: "current", detail: "Running synthetic checkout validation" },
-            ...prev.slice(4),
-          ])
-          // Step 4 -> 5
-          setTimeout(() => {
-            setSimulationSteps((prev) => [
-              prev[0],
-              prev[1],
-              prev[2],
-              { ...prev[3], state: "done" },
-              { ...prev[4], state: "current", detail: "Updating live routing path" },
-            ])
-            // Done
-            setTimeout(() => {
-              setSimulationSteps((prev) => prev.map((s) => ({ ...s, state: "done" })))
-              setRestoreStep(2)
-              // Update points current status
-              setPoints((prev) =>
-                prev.map((p) => ({
-                  ...p,
-                  current: p.id === point.id,
-                }))
-              )
-            }, 1000)
-          }, 1500)
-        }, 1500)
-      }, 1500)
-    }, 1500)
+    setRestoreError(null)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/restore-points/${point.id}/revert`, { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setRestoreError(data.error || "Restore failed.")
+        setRestoreStep(0)
+        return
+      }
+      setRestoreStep(2)
+      setPoints((prev) => prev.map((p) => ({ ...p, current: p.id === point.id })))
+    } catch {
+      setRestoreError("Network error — could not reach the server.")
+      setRestoreStep(0)
+    }
   }
 
   const closeRestoreModal = () => {
     setRestoreTarget(null)
     setRestoreStep(0)
+    setRestoreError(null)
   }
 
   return (
@@ -301,6 +254,10 @@ export default function RestorePointsPage() {
                   </div>
                 </div>
 
+                {restoreError && (
+                  <p className="text-xs font-semibold text-destructive">{restoreError}</p>
+                )}
+
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     onClick={closeRestoreModal}
@@ -309,7 +266,7 @@ export default function RestorePointsPage() {
                     Cancel
                   </button>
                   <button
-                    onClick={() => triggerRestoreSimulation(restoreTarget)}
+                    onClick={() => triggerRestore(restoreTarget)}
                     className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 transition-all cursor-pointer"
                   >
                     <RotateCcw className="size-3.5" />
@@ -320,30 +277,9 @@ export default function RestorePointsPage() {
             )}
 
             {restoreStep === 1 && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-center gap-2 rounded-xl bg-primary/10 px-4 py-3 text-sm font-semibold text-primary">
-                  <Loader2 className="size-4.5 animate-spin" />
-                  Executing recovery flow cleanly...
-                </div>
-
-                <ol className="space-y-4 border-l border-border/80 pl-4 mt-4">
-                  {simulationSteps.map((step, idx) => (
-                    <li key={idx} className="relative text-xs">
-                      <span
-                        className={cn(
-                          "absolute -left-21px top-0 flex size-2.5 items-center justify-center rounded-full ring-4 ring-background",
-                          step.state === "done" && "bg-success",
-                          step.state === "current" && "bg-warning animate-pulse",
-                          step.state === "upcoming" && "bg-muted"
-                        )}
-                      />
-                      <span className={cn("font-semibold block", step.state === "upcoming" ? "text-muted-foreground" : "text-foreground")}>
-                        {step.label}
-                      </span>
-                      {step.detail && <span className="text-2xs text-muted-foreground block mt-0.5">{step.detail}</span>}
-                    </li>
-                  ))}
-                </ol>
+              <div className="flex items-center justify-center gap-2 rounded-xl bg-primary/10 px-4 py-3 text-sm font-semibold text-primary">
+                <Loader2 className="size-4.5 animate-spin" />
+                Reverting...
               </div>
             )}
 
@@ -355,7 +291,7 @@ export default function RestorePointsPage() {
                 <div>
                   <h4 className="font-bold text-base text-foreground mt-2">Restore Complete</h4>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    WordPress restore point loaded and validated on production. All systems functional.
+                    The action tied to this restore point has been reverted on your site.
                   </p>
                 </div>
                 <div className="pt-2">

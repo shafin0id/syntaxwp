@@ -8,15 +8,18 @@ import { env } from "../../env.js";
 
 const encryptionKey = loadSiteSecretEncryptionKey(env.SITE_SECRET_ENCRYPTION_KEY);
 
-export async function executeMcpActionOnSite(siteId: string, action: string, target?: string): Promise<boolean> {
+// Returns the ability's full result payload (e.g. verify_core_integrity's
+// modified/missing/repaired lists), not just a boolean — for callers that
+// only care about pass/fail, executeMcpActionOnSite below still works.
+export async function callMcpAbility(siteId: string, action: string, target?: string): Promise<any | null> {
   const [site] = await db.select().from(sites).where(eq(sites.id, siteId)).limit(1);
-  if (!site) return false;
+  if (!site) return null;
 
   try {
     const siteSecret = decryptSiteSecret(site.siteSecretCiphertext, encryptionKey);
     const nonce = crypto.randomUUID();
     const timestamp = Math.floor(Date.now() / 1000);
-    
+
     const ability = `syntaxwp/${action.replace(/_/g, "-")}`;
     const unsignedPayload = {
       ability,
@@ -33,13 +36,17 @@ export async function executeMcpActionOnSite(siteId: string, action: string, tar
     });
 
     if (res.ok) {
-      const body = await res.json() as any;
-      return !!body.success;
+      return await res.json();
     }
   } catch (err) {
     console.error(`Failed to execute MCP action "${action}" on site:`, err);
   }
-  return false;
+  return null;
+}
+
+export async function executeMcpActionOnSite(siteId: string, action: string, target?: string): Promise<boolean> {
+  const body = await callMcpAbility(siteId, action, target);
+  return !!body?.success;
 }
 
 // Task B5.2: O(log n) Binary Search Plugin Conflict Isolation

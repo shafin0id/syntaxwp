@@ -13,10 +13,15 @@ import Link from "next/link"
 import { RotateCcw, Lock, RefreshCw, ShieldAlert, ChevronRight, History } from "lucide-react"
 import { HealthDial } from "@/components/shared/health-dial"
 import { StatusDot } from "@/components/ui/status"
+import { useStream } from "@/lib/stream-context"
 
 export function StatusRail() {
   const [securityData, setSecurityData] = useState<any>(null)
   const [restorePoints, setRestorePoints] = useState<any[]>([])
+  const [pendingUpdatesCount, setPendingUpdatesCount] = useState(0)
+  const { incidentsList } = useStream()
+
+  const awaitingCount = incidentsList.filter((i) => i.stage === "awaiting-approval").length
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/security`)
@@ -27,6 +32,11 @@ export function StatusRail() {
     fetch(`${API_BASE_URL}/api/restore-points`)
       .then((r) => r.json())
       .then((data) => setRestorePoints(data))
+      .catch(console.error);
+
+    fetch(`${API_BASE_URL}/api/updates`)
+      .then((r) => r.json())
+      .then((data) => setPendingUpdatesCount(Array.isArray(data) ? data.length : 0))
       .catch(console.error);
   }, []);
 
@@ -46,12 +56,20 @@ export function StatusRail() {
         <div className="rounded-2xl border border-border bg-card p-2 space-y-0.5">
           <StatusRow
             icon={<ShieldAlert className="size-4 text-danger" />}
-            label="1 issue needs your OK"
+            label={
+              awaitingCount > 0
+                ? `${awaitingCount} issue${awaitingCount === 1 ? "" : "s"} need${awaitingCount === 1 ? "s" : ""} your OK`
+                : "No issues need your attention"
+            }
             href="/incidents"
           />
           <StatusRow
             icon={<RefreshCw className="size-4 text-warning" />}
-            label="2 updates ready to install"
+            label={
+              pendingUpdatesCount > 0
+                ? `${pendingUpdatesCount} update${pendingUpdatesCount === 1 ? "" : "s"} ready to install`
+                : "All updates installed"
+            }
             href="/updates"
           />
           <StatusRow
@@ -87,10 +105,13 @@ export function StatusRail() {
               </li>
             ))}
           </ul>
-          <button className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold transition-colors hover:bg-muted">
+          <Link
+            href="/restore-points"
+            className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold transition-colors hover:bg-muted"
+          >
             <RotateCcw className="size-3.5" />
             Revert to a point
-          </button>
+          </Link>
         </div>
       </div>
     </aside>

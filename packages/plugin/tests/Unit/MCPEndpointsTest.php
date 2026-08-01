@@ -41,9 +41,20 @@ final class MCPEndpointsTest extends TestCase
         $this->assertFalse((new MCPEndpoints())->isLoopbackRequest());
     }
 
+    private function stubKillSwitchInactive(): void
+    {
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_kill_switch_active', false],
+            'return' => false,
+        ]);
+    }
+
     public function test_execute_ability_delegates_to_the_injected_action_executor(): void
     {
+        $this->stubKillSwitchInactive();
         \WP_Mock::userFunction('wp_cache_flush', ['times' => 1]);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_cloudflare_zone_id'], 'return' => false]);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_cloudflare_api_key'], 'return' => false]);
 
         $endpoints = new MCPEndpoints(new ActionExecutor());
         $result = $endpoints->executeAbility(['ability' => 'syntaxwp/flush-cache', 'input' => []]);
@@ -53,6 +64,7 @@ final class MCPEndpointsTest extends TestCase
 
     public function test_execute_ability_passes_the_input_target_through(): void
     {
+        $this->stubKillSwitchInactive();
         \WP_Mock::userFunction('get_plugins', [
             'return' => ['yoast-seo/wp-seo.php' => ['Version' => '23.2']],
         ]);
@@ -75,6 +87,7 @@ final class MCPEndpointsTest extends TestCase
 
     public function test_execute_ability_rejects_an_ability_outside_the_syntaxwp_namespace(): void
     {
+        $this->stubKillSwitchInactive();
         $endpoints = new MCPEndpoints();
         $result = $endpoints->executeAbility(['ability' => 'other-plugin/do-something']);
 
@@ -86,15 +99,33 @@ final class MCPEndpointsTest extends TestCase
 
     public function test_execute_ability_rejects_a_missing_ability_param(): void
     {
+        $this->stubKillSwitchInactive();
         $endpoints = new MCPEndpoints();
         $result = $endpoints->executeAbility([]);
 
         $this->assertSame(['success' => false, 'reason' => 'unknown_ability', 'ability' => ''], $result);
     }
 
+    public function test_execute_ability_refuses_to_run_anything_while_the_kill_switch_is_active(): void
+    {
+        \WP_Mock::userFunction('get_option', [
+            'args' => ['syntaxwp_kill_switch_active', false],
+            'return' => true,
+        ]);
+        \WP_Mock::userFunction('wp_cache_flush', ['times' => 0]);
+
+        $endpoints = new MCPEndpoints(new ActionExecutor());
+        $result = $endpoints->executeAbility(['ability' => 'syntaxwp/flush-cache', 'input' => []]);
+
+        $this->assertSame(['success' => false, 'reason' => 'kill_switch_active'], $result);
+    }
+
     public function test_handle_execute_extracts_json_params_from_the_request_object(): void
     {
+        $this->stubKillSwitchInactive();
         \WP_Mock::userFunction('wp_cache_flush', ['times' => 1]);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_cloudflare_zone_id'], 'return' => false]);
+        \WP_Mock::userFunction('get_option', ['args' => ['syntaxwp_cloudflare_api_key'], 'return' => false]);
 
         $request = new class {
             public function get_json_params(): array

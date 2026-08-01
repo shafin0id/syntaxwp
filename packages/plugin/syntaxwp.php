@@ -33,6 +33,7 @@ use SyntaxWP\Plugin\Core\ErrorCapture;
 use SyntaxWP\Plugin\Core\EventQueue;
 use SyntaxWP\Plugin\Core\Heartbeat;
 use SyntaxWP\Plugin\Core\WorkOrderPoller;
+use SyntaxWP\Plugin\Monitoring\WooCommerceHooks;
 use SyntaxWP\Plugin\Wp7\AbilitiesRegistrar;
 use SyntaxWP\Plugin\Wp7\MCPEndpoints;
 
@@ -124,6 +125,11 @@ class SyntaxWP {
         ( new ErrorCapture() )->registerHooks();
         ( new EventQueue() )->registerHooks();
         ( new WorkOrderPoller( $capability_router ) )->registerHooks();
+
+        // No-ops internally if WooCommerce isn't active — safe to construct
+        // unconditionally, and must NOT be gated behind is_admin() since
+        // checkout events fire on the storefront, not wp-admin.
+        ( new WooCommerceHooks() )->registerHooks();
 
         // MCP/Abilities only make sense on the WP7-native path — a legacy
         // site never gets an MCP surface registered for nothing.

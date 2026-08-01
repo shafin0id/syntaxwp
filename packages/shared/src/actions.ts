@@ -16,6 +16,7 @@ export const WORK_ORDER_ACTIONS = [
   "update_core",
   "delete_plugin",
   "update_option",
+  "verify_core_integrity",
   "run_arbitrary_command",
 ] as const;
 
@@ -43,5 +44,6 @@ export const ACTION_RISK_MAP: Record<WorkOrderAction, RiskLevel> = {
   repair_db: "high",
   toggle_debug: "medium",
   update_option: "medium",
+  verify_core_integrity: "medium",
   run_arbitrary_command: "blocked",
 };

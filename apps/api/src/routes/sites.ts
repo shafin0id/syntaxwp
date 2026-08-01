@@ -12,6 +12,7 @@ import {
   insertAuditLog,
   workOrderToWirePayload,
   incidents,
+  sites,
   type Site,
 } from "@syntaxwp/db";
 import { sql, eq } from "drizzle-orm";
@@ -151,6 +152,37 @@ export const sitesRoutes = new Hono<{ Variables: SessionVariables & SiteAuthVari
 
     return c.json(serializeSite(site));
   })
+  // Remote counterpart to the plugin's local KillSwitch (safety/KillSwitch.php)
+  // — the plugin picks this up on its next heartbeat (§4.3), the one channel
+  // both execution paths already poll every 60s.
+  .post("/:id/kill-switch", requireSession, async (c) => {
+    const orgId = getOrgIdFromUser(c.get("user"));
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
+
+    const site = await getSiteByIdForOrg(db, c.req.param("id"), orgId);
+    if (!site) {
+      return c.json({ error: "site not found" }, 404);
+    }
+
+    const parsed = z.object({ active: z.boolean() }).safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten().fieldErrors }, 400);
+    }
+
+    await db.update(sites).set({ killSwitchActive: parsed.data.active }).where(eq(sites.id, site.id));
+    await insertAuditLog(db, {
+      siteId: site.id,
+      eventType: parsed.data.active ? "kill_switch_activated" : "kill_switch_deactivated",
+      actor: `user:${c.get("user").id}`,
+      summary: parsed.data.active
+        ? "User remotely disabled the plugin's execution capability."
+        : "User re-enabled the plugin's execution capability.",
+    });
+
+    return c.json({ success: true, killSwitchActive: parsed.data.active });
+  })
   .get("/:id/stream", requireSession, async (c) => {
     const orgId = getOrgIdFromUser(c.get("user"));
     if (!orgId) {
@@ -213,7 +245,7 @@ export const sitesRoutes = new Hono<{ Variables: SessionVariables & SiteAuthVari
         await upsertPluginInventory(db, site.id, parsed.data.plugins);
       }
 
-      return c.json({ ok: true });
+      return c.json({ ok: true, kill_switch_active: site.killSwitchActive });
     },
   )
   .post(

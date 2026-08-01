@@ -1,0 +1,1 @@
+ALTER TABLE "sites" ADD COLUMN "kill_switch_active" boolean DEFAULT false NOT NULL;

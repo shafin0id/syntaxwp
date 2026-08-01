@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import { env } from "../env.js";
 import { executeMcpActionOnSite } from "../worker/tasks/diagnostics.js";
 import { subscribeToSiteEvents } from "../realtime/site-events.js";
+import { executeRevert } from "../snapshots/revert.js";
 
 const encryptionKey = loadSiteSecretEncryptionKey(env.SITE_SECRET_ENCRYPTION_KEY);
 
@@ -837,6 +838,62 @@ export const dashboardRoute = new Hono()
     }
   })
 
+  .post("/api/incidents/:id/decline", async (c) => {
+    const { id } = c.req.param();
+    try {
+      const [incident] = await db.select().from(incidents).where(eq(incidents.id, id)).limit(1);
+      if (!incident) {
+        return c.json({ error: "Incident not found" }, 404);
+      }
+
+      await db.update(incidents).set({ status: "declined" }).where(eq(incidents.id, id));
+      await db.insert(auditLog).values({
+        siteId: incident.siteId,
+        incidentId: incident.id,
+        eventType: "manual_decline",
+        actor: "user",
+        summary: `User declined the proposed fix: ${incident.rootCause || "unknown"}.`,
+        evidence: { manual_decline: true },
+      });
+
+      return c.json({ success: true, status: "declined" });
+    } catch (err: any) {
+      console.error(`[API] Decline failed for incident ${id}: ${err.message}`);
+      return c.json({ error: err.message }, 500);
+    }
+  })
+
+  // Undoes a decline — puts the incident back in the same "awaiting your
+  // approval" state it was in before, same status value the automated
+  // fix pipeline itself uses for that state (§8.1's "escalate" branch).
+  .post("/api/incidents/:id/reconsider", async (c) => {
+    const { id } = c.req.param();
+    try {
+      const [incident] = await db.select().from(incidents).where(eq(incidents.id, id)).limit(1);
+      if (!incident) {
+        return c.json({ error: "Incident not found" }, 404);
+      }
+      if (incident.status !== "declined") {
+        return c.json({ error: "Incident was not declined" }, 409);
+      }
+
+      await db.update(incidents).set({ status: "escalated" }).where(eq(incidents.id, id));
+      await db.insert(auditLog).values({
+        siteId: incident.siteId,
+        incidentId: incident.id,
+        eventType: "manual_reconsider",
+        actor: "user",
+        summary: "User reconsidered a previously declined fix.",
+        evidence: { manual_reconsider: true },
+      });
+
+      return c.json({ success: true, status: "escalated" });
+    } catch (err: any) {
+      console.error(`[API] Reconsider failed for incident ${id}: ${err.message}`);
+      return c.json({ error: err.message }, 500);
+    }
+  })
+
   // POST Rollback/restore incident deactivation manually
   .post("/api/incidents/:id/rollback", async (c) => {
     const { id } = c.req.param();
@@ -947,6 +1004,30 @@ export const dashboardRoute = new Hono()
       return c.json(mapped);
     } catch (err: any) {
       return c.json({ error: "Internal server error" }, 500);
+    }
+  })
+
+  // POST /api/restore-points/:id/revert — undo the specific action this
+  // snapshot was taken for. Not a full site-state time machine: only
+  // reverts what executeRevert's INVERSE_ACTION map knows how to invert
+  // (see apps/api/src/snapshots/revert.ts), same mechanism the Dead Man's
+  // Switch already uses automatically.
+  .post("/api/restore-points/:id/revert", async (c) => {
+    const { id } = c.req.param();
+    try {
+      const [snapshot] = await db.select().from(snapshotsTable).where(eq(snapshotsTable.id, id)).limit(1);
+      if (!snapshot) {
+        return c.json({ error: "Restore point not found" }, 404);
+      }
+      if (!snapshot.workOrderId) {
+        return c.json({ error: "This restore point has no linked action to revert automatically." }, 400);
+      }
+
+      const result = await executeRevert(snapshot.workOrderId);
+      return c.json({ success: true, ...result });
+    } catch (err: any) {
+      console.error(`[API] Restore point revert failed for ${id}: ${err.message}`);
+      return c.json({ error: err.message }, 500);
     }
   })
 
@@ -1082,6 +1163,70 @@ export const dashboardRoute = new Hono()
       }
 
       return c.json(reportsList);
+    } catch (err: any) {
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  })
+
+  // GET /api/reports/:id/export — CSV, not PDF: a real, queryable export
+  // beats a "PDF" label with no PDF generator behind it.
+  .get("/api/reports/:id/export", async (c) => {
+    const { id } = c.req.param();
+    const match = id.match(/^r-(\d{4})-(\d{1,2})$/);
+    if (!match) {
+      return c.json({ error: "Invalid report id" }, 400);
+    }
+
+    try {
+      const siteId = c.req.query("siteId");
+      let querySiteId = siteId;
+      if (!querySiteId || !/^[0-9a-f-]{36}$/i.test(querySiteId)) {
+        const [site] = await db.select({ id: sites.id }).from(sites).limit(1);
+        if (!site) return c.json({ error: "No sites configured" }, 404);
+        querySiteId = site.id;
+      }
+
+      const year = Number(match[1]);
+      const month = Number(match[2]) - 1; // JS month index
+      const startOfMonth = new Date(year, month, 1);
+      const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
+
+      const resolvedIncidents = await db
+        .select()
+        .from(incidents)
+        .where(
+          and(
+            eq(incidents.siteId, querySiteId),
+            eq(incidents.status, "resolved"),
+            gt(incidents.resolvedAt, startOfMonth),
+            lte(incidents.resolvedAt, endOfMonth)
+          )
+        )
+        .orderBy(desc(incidents.resolvedAt));
+
+      const monthName = startOfMonth.toLocaleString("en-US", { month: "long" });
+      const csvEscape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+      const rows: string[][] = [
+        ["Report", `${monthName} ${year} - Monthly health report`],
+        ["Issues resolved", String(resolvedIncidents.length)],
+        [],
+        ["Detected At", "Resolved At", "Type", "Severity", "Root Cause", "Summary"],
+        ...resolvedIncidents.map((inc) => [
+          inc.detectedAt ? inc.detectedAt.toISOString() : "",
+          inc.resolvedAt ? inc.resolvedAt.toISOString() : "",
+          inc.type,
+          inc.severity,
+          inc.rootCause || "",
+          inc.plainEnglish || "",
+        ]),
+      ];
+
+      const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+
+      c.header("Content-Type", "text/csv");
+      c.header("Content-Disposition", `attachment; filename="report-${year}-${match[2].padStart(2, "0")}.csv"`);
+      return c.body(csv);
     } catch (err: any) {
       return c.json({ error: "Internal server error" }, 500);
     }

@@ -92,6 +92,20 @@
       "when": 1785565816654,
       "tag": "0012_add_site_notification_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785582317531,
+      "tag": "0013_add_site_kill_switch",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785590277097,
+      "tag": "0014_add_pageviews",
+      "breakpoints": true
     }
   ]
 }

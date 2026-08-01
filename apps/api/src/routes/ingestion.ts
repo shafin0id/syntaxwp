@@ -93,10 +93,18 @@ export const ingestionRoute = new Hono()
 
     const { site_id, type, severity, root_cause, plain_english, confidence } = parsed.data;
 
-    // Verify site and secret
-    const site = await authenticateSite(c, site_id);
+    // This route is called by the globally-distributed Cloudflare probe, not
+    // the site's own plugin — it has no legitimate access to any site's HMAC
+    // secret, so it authenticates as the trusted probe identity instead
+    // (same CF_WORKER_SECRET as GET /api/probes/sites).
+    const authHeader = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "");
+    if (!authHeader || authHeader !== env.CF_WORKER_SECRET) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const [site] = await db.select().from(sites).where(eq(sites.id, site_id)).limit(1);
     if (!site) {
-      return c.json({ error: "Site not found or invalid authorization" }, 401);
+      return c.json({ error: "Site not found" }, 404);
     }
 
     try {

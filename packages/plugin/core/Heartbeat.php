@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace SyntaxWP\Plugin\Core;
 
+use SyntaxWP\Plugin\Safety\KillSwitch;
+
 /**
  * 60s health payload — inventory, PHP version, DB size (§4.3, §4.4).
  *
@@ -73,15 +75,30 @@ final class Heartbeat
         $payload = $this->buildPayload((string) $siteId);
         $payload['hmac'] = Hmac::sign($payload, (string) $secret);
 
-        wp_remote_post($this->endpointUrl((string) $siteId), [
+        $response = wp_remote_post($this->endpointUrl((string) $siteId), [
             'body' => wp_json_encode($payload),
             'headers' => ['Content-Type' => 'application/json'],
             'timeout' => 5,
-            // Fire-and-forget: a dropped heartbeat is corrected by the next
-            // one 60s later, so it isn't worth blocking shutdown to confirm
-            // delivery (§4.4's "zero visitor impact").
+            // Blocking (not fire-and-forget) because the response body is
+            // the one channel the remote KillSwitch (§4.2) rides along on —
+            // a dropped heartbeat is corrected by the next one 60s later,
+            // but only if this one actually waited to read it.
             'blocking' => true,
         ]);
+
+        if (is_wp_error($response)) {
+            return;
+        }
+
+        $body = json_decode((string) wp_remote_retrieve_body($response), true);
+        if (!is_array($body)) {
+            return;
+        }
+
+        $shouldBeActive = !empty($body['kill_switch_active']);
+        if ($shouldBeActive !== KillSwitch::isActive()) {
+            $shouldBeActive ? KillSwitch::activate() : KillSwitch::deactivate();
+        }
     }
 
     /**

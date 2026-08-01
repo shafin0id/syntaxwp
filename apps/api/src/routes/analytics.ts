@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "@syntaxwp/db";
-import { sites } from "@syntaxwp/db";
+import { sites, pageviews } from "@syntaxwp/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -32,8 +32,7 @@ export const analyticsRoute = new Hono()
         return c.json({ error: "Site not found" }, 404);
       }
 
-      // Aggregate/log pageview metadata securely (GDPR clean)
-      console.log(`[pageview] Site ID: ${site_id} | Path: ${path} | Referrer: ${referrer || "none"}`);
+      await db.insert(pageviews).values({ siteId: site_id, path, referrer });
 
       return c.json({ status: "ok" }, 200);
     } catch (err: any) {

@@ -27,5 +27,9 @@ export const sites = pgTable("sites", {
   themes: json("themes").$type<any[]>().default([]).notNull(),
   notificationEmail: text("notification_email"),
   slackWebhookUrl: text("slack_webhook_url"),
+  // Remote counterpart to the plugin's local KillSwitch (safety/KillSwitch.php)
+  // — surfaced to the plugin via the heartbeat response, the one channel
+  // both execution paths already poll every 60s.
+  killSwitchActive: boolean("kill_switch_active").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });

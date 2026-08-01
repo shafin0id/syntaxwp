@@ -30,3 +30,12 @@
 
 # Daily headless WooCommerce checkout probe.
 0 2 * * * synthetic_checkout_check
+
+# Heartbeat drift alarm (§5.1 Source 4) — raise/auto-resolve a server-level
+# outage incident when a site's 60s heartbeat goes silent for >180s. Runs
+# every minute so the 180s threshold isn't blurred by a coarser sweep.
+* * * * * heartbeat_drift_check
+
+# Core file checksum audit + auto-repair (§8, §12.1-12.2), wp7_native sites
+# only — see verify_core_integrity ability / IntegrityScanner.php.
+0 4 * * * core_integrity_check

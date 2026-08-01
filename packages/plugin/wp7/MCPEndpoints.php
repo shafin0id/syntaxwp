@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SyntaxWP\Plugin\Wp7;
 
 use SyntaxWP\Plugin\Core\Hmac;
+use SyntaxWP\Plugin\Safety\KillSwitch;
 
 /**
  * Exposes MCP endpoints, localhost only — not public (§4.1, §4.2).
@@ -152,6 +153,14 @@ final class MCPEndpoints
      */
     public function executeAbility(array $params): array
     {
+        // The MCP path bypasses WorkOrderPoller entirely (that's the whole
+        // point of native execution), so it needs its own KillSwitch check
+        // — otherwise a remote disable would only ever stop the legacy
+        // polling path, not the one most sites actually use.
+        if (KillSwitch::isActive()) {
+            return ['success' => false, 'reason' => 'kill_switch_active'];
+        }
+
         $ability = isset($params['ability']) ? (string) $params['ability'] : '';
         $action = $this->actionFromAbility($ability);
         if ($action === null) {
