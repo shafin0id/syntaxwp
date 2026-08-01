@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
+const REMEMBER_COOKIE = "sw_remember"
+
 // UX-only redirect for page navigation — the real security boundary is
 // apps/api's requireSession middleware (a different origin/process this
 // middleware has no authority over). Without this, an unauthenticated
@@ -32,16 +34,31 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user && !request.nextUrl.pathname.startsWith("/login")) {
-    const loginUrl = request.nextUrl.clone()
-    loginUrl.pathname = "/login"
-    return NextResponse.redirect(loginUrl)
+  // sw_remember is a plain cookie set at login, not a Supabase one: a
+  // session cookie (gone when the browser closes) if "remember me" was
+  // unchecked, a ~30-day cookie if checked. Supabase's own session cookie
+  // persists ~400 days regardless, so a session that outlived its
+  // sw_remember cookie is signed out here instead of staying silently valid.
+  let authenticated = Boolean(user)
+  if (user && !request.cookies.get(REMEMBER_COOKIE)) {
+    authenticated = false
+    await supabase.auth.signOut()
   }
 
-  if (user && request.nextUrl.pathname.startsWith("/login")) {
-    const homeUrl = request.nextUrl.clone()
-    homeUrl.pathname = "/"
-    return NextResponse.redirect(homeUrl)
+  const redirectTo = (pathname: string) => {
+    const target = request.nextUrl.clone()
+    target.pathname = pathname
+    const redirectResponse = NextResponse.redirect(target)
+    response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie))
+    return redirectResponse
+  }
+
+  if (!authenticated && !request.nextUrl.pathname.startsWith("/login")) {
+    return redirectTo("/login")
+  }
+
+  if (authenticated && request.nextUrl.pathname.startsWith("/login")) {
+    return redirectTo("/")
   }
 
   return response

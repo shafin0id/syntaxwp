@@ -10,6 +10,7 @@ export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [remember, setRemember] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -24,6 +25,13 @@ export default function LoginPage() {
         setError(signInError.message)
         return
       }
+      // Supabase's own session cookie always persists ~400 days — this
+      // separate cookie is what middleware.ts actually checks. No max-age
+      // makes it a session cookie (gone when the browser closes); a 30-day
+      // max-age is the "remember me" window.
+      const maxAge = remember ? 30 * 24 * 60 * 60 : undefined
+      const secure = location.protocol === "https:" ? "; secure" : ""
+      document.cookie = `sw_remember=1; path=/${maxAge ? `; max-age=${maxAge}` : ""}${secure}; samesite=lax`
       router.push("/")
       router.refresh()
     } catch (err) {
@@ -70,6 +78,16 @@ export default function LoginPage() {
               className="mt-1 h-9 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
             />
           </div>
+
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="size-3.5 rounded border-border accent-primary cursor-pointer"
+            />
+            Remember me for 30 days
+          </label>
 
           {error && <p className="text-xs font-semibold text-danger">{error}</p>}
 
