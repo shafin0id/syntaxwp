@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { db } from "@syntaxwp/db";
+import { db, getSiteByIdForOrg, listSitesForOrg } from "@syntaxwp/db";
 import { incidents, auditLog, sites, pluginInventory, vulnerabilityAdvisories, performanceSnapshots, snapshots as snapshotsTable, securityActionsLog } from "@syntaxwp/db";
 import { eq, desc, and, gt, inArray, count, lte, sql } from "drizzle-orm";
 import { calculateHealthScore, decryptSiteSecret, loadSiteSecretEncryptionKey, estimateRevenueLoss, signPayload } from "@syntaxwp/shared";
@@ -10,18 +10,49 @@ import { env } from "../env.js";
 import { executeMcpActionOnSite } from "../worker/tasks/diagnostics.js";
 import { subscribeToSiteEvents } from "../realtime/site-events.js";
 import { executeRevert } from "../snapshots/revert.js";
+import { requireSession, getOrgIdFromUser, type SessionVariables } from "../auth/middleware.js";
 
 const encryptionKey = loadSiteSecretEncryptionKey(env.SITE_SECRET_ENCRYPTION_KEY);
 
-export const dashboardRoute = new Hono()
+// Resolves a site the caller's org actually owns — either the one they
+// asked for (validated against org_id) or, absent a siteId, the org's own
+// default site. Replaces the old "just grab any site in the whole table"
+// fallback, which leaked cross-org data before every route here required
+// a session at all.
+async function resolveOrgSiteId(orgId: string, requestedSiteId?: string | null): Promise<string | null> {
+  if (requestedSiteId && /^[0-9a-f-]{36}$/i.test(requestedSiteId)) {
+    const site = await getSiteByIdForOrg(db, requestedSiteId, orgId);
+    return site ? site.id : null;
+  }
+  const orgSites = await listSitesForOrg(db, orgId);
+  return orgSites[0]?.id ?? null;
+}
+
+function requireOrgId(c: any): string | null {
+  const orgId = getOrgIdFromUser(c.get("user"));
+  return orgId ?? null;
+}
+
+// Fetches an incident, returning it only if its site belongs to the
+// caller's org — otherwise treated identically to "doesn't exist" so a
+// cross-org request can't distinguish "not found" from "not yours."
+async function getIncidentForOrg(incidentId: string, orgId: string) {
+  const [incident] = await db.select().from(incidents).where(eq(incidents.id, incidentId)).limit(1);
+  if (!incident) return undefined;
+  if (!(await getSiteByIdForOrg(db, incident.siteId, orgId))) return undefined;
+  return incident;
+}
+
+export const dashboardRoute = new Hono<{ Variables: SessionVariables }>()
+  .use("*", requireSession)
   .get("/api/stream", async (c) => {
-    let siteId = c.req.query("siteId");
-    if (!siteId || !/^[0-9a-f-]{36}$/i.test(siteId)) {
-      const [site] = await db.select({ id: sites.id }).from(sites).limit(1);
-      if (!site) {
-        return c.json({ error: "No sites configured" }, 404);
-      }
-      siteId = site.id;
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
+    const siteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+    if (!siteId) {
+      return c.json({ error: "No sites configured" }, 404);
     }
 
     return streamSSE(c, async (stream) => {
@@ -88,13 +119,22 @@ export const dashboardRoute = new Hono()
   })
   // Task B11.2: Server-Sent Events (SSE) stream for live diagnostic progress stepper
   .get("/api/stepper/:incidentId", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const incidentId = c.req.param("incidentId");
 
     // Validate UUID format
     if (!incidentId || !/^[0-9a-f-]{36}$/i.test(incidentId)) {
       return c.json({ error: "Invalid incidentId format" }, 400);
     }
-    
+
+    const [incidentForAuth] = await db.select({ siteId: incidents.siteId }).from(incidents).where(eq(incidents.id, incidentId)).limit(1);
+    if (!incidentForAuth || !(await getSiteByIdForOrg(db, incidentForAuth.siteId, orgId))) {
+      return c.json({ error: "Incident not found" }, 404);
+    }
+
     return streamSSE(c, async (stream) => {
       let lastSeenTimestamp = new Date(0);
 
@@ -156,14 +196,16 @@ export const dashboardRoute = new Hono()
   // Task B11.1: Live Incident read APIs
   .get("/api/incidents", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let query = db.select().from(incidents);
-      
-      if (siteId && /^[0-9a-f-]{36}$/i.test(siteId)) {
-        query = db.select().from(incidents).where(eq(incidents.siteId, siteId)) as any;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
+      const siteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!siteId) {
+        return c.json([]);
       }
 
-      const list = await query.orderBy(desc(incidents.detectedAt)).limit(100);
+      const list = await db.select().from(incidents).where(eq(incidents.siteId, siteId)).orderBy(desc(incidents.detectedAt)).limit(100);
       return c.json(list);
     } catch (err: any) {
       return c.json({ error: err.message }, 500);
@@ -173,13 +215,13 @@ export const dashboardRoute = new Hono()
   // Task B11.1: Live Core Web Vitals — multi-factor with baseline deltas
   .get("/api/performance", async (c) => {
     try {
-      let siteId = c.req.query("siteId");
-      if (!siteId || !/^[0-9a-f-]{36}$/i.test(siteId)) {
-        const [site] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!site) {
-          return c.json({ score: 100, desktop: null, mobile: null, synthetic: null, shieldLogs: [] });
-        }
-        siteId = site.id;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
+      const siteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!siteId) {
+        return c.json({ score: 100, desktop: null, mobile: null, synthetic: null, shieldLogs: [] });
       }
 
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -268,14 +310,15 @@ export const dashboardRoute = new Hono()
   // Task B11.1 & B11.3: Real health score, SSL & domain registry
   .get("/api/security", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let site;
-      
-      if (siteId && /^[0-9a-f-]{36}$/i.test(siteId)) {
-        [site] = await db.select().from(sites).where(eq(sites.id, siteId)).limit(1);
-      } else {
-        [site] = await db.select().from(sites).limit(1);
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
       }
+      const siteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!siteId) {
+        return c.json({ checks: [], vulnerabilitiesCount: 0, healthScore: 100, recentActions: [] });
+      }
+      const site = await getSiteByIdForOrg(db, siteId, orgId);
 
       if (!site) {
         return c.json({ checks: [], vulnerabilitiesCount: 0, healthScore: 100, recentActions: [] });
@@ -403,25 +446,20 @@ export const dashboardRoute = new Hono()
   // Task B11.1: Live plugin update items
   .get("/api/updates", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let query = db
-        .select()
-        .from(pluginInventory)
-        .where(eq(pluginInventory.updateAvailable, true));
-
-      if (siteId && /^[0-9a-f-]{36}$/i.test(siteId)) {
-        query = db
-          .select()
-          .from(pluginInventory)
-          .where(
-            and(
-              eq(pluginInventory.updateAvailable, true),
-              eq(pluginInventory.siteId, siteId)
-            )
-          ) as any;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
+      const siteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!siteId) {
+        return c.json([]);
       }
 
-      const updatesList = await query.limit(100);
+      const updatesList = await db
+        .select()
+        .from(pluginInventory)
+        .where(and(eq(pluginInventory.updateAvailable, true), eq(pluginInventory.siteId, siteId)))
+        .limit(100);
       return c.json(updatesList);
     } catch (err: any) {
       return c.json({ error: "Internal server error" }, 500);
@@ -431,17 +469,16 @@ export const dashboardRoute = new Hono()
   // POST /api/updates/sync
   .post("/api/updates/sync", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let targetSiteId = siteId;
-      if (!targetSiteId || !/^[0-9a-f-]{36}$/i.test(targetSiteId)) {
-        const [firstSite] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!firstSite) {
-          return c.json({ error: "No sites configured" }, 404);
-        }
-        targetSiteId = firstSite.id;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
+      const targetSiteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!targetSiteId) {
+        return c.json({ error: "No sites configured" }, 404);
       }
 
-      const [site] = await db.select().from(sites).where(eq(sites.id, targetSiteId)).limit(1);
+      const site = await getSiteByIdForOrg(db, targetSiteId, orgId);
       if (!site) {
         return c.json({ error: "Site not found" }, 404);
       }
@@ -493,10 +530,17 @@ export const dashboardRoute = new Hono()
   // GET /api/updates/status
   .get("/api/updates/status", async (c) => {
     try {
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
       const siteId = c.req.query("siteId");
       const slug = c.req.query("slug");
       if (!siteId || !slug) {
         return c.json({ error: "Missing siteId or slug" }, 400);
+      }
+      if (!(await getSiteByIdForOrg(db, siteId, orgId))) {
+        return c.json({ error: "Site not found" }, 404);
       }
 
       const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
@@ -521,18 +565,13 @@ export const dashboardRoute = new Hono()
   // POST /api/updates/plugins
   .post("/api/updates/plugins", async (c) => {
     try {
-      const { siteId, slugs } = await c.req.json() as { siteId: string; slugs: string[] };
-      let targetSiteId = siteId;
-      if (!targetSiteId || !/^[0-9a-f-]{36}$/i.test(targetSiteId)) {
-        const [firstSite] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!firstSite) {
-          return c.json({ error: "No sites configured" }, 404);
-        }
-        targetSiteId = firstSite.id;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
       }
-
-      const [site] = await db.select().from(sites).where(eq(sites.id, targetSiteId)).limit(1);
-      if (!site) {
+      const { siteId, slugs } = await c.req.json() as { siteId: string; slugs: string[] };
+      const targetSiteId = await resolveOrgSiteId(orgId, siteId);
+      if (!targetSiteId) {
         return c.json({ error: "Site not found" }, 404);
       }
 
@@ -540,7 +579,7 @@ export const dashboardRoute = new Hono()
       for (const slug of slugs) {
         // Queue the safe_update_verification job asynchronously via graphile-worker
         await db.execute(
-          sql`SELECT graphile_worker.add_job('safe_update_verification', json_build_object('siteId', ${site.id}::text, 'slug', ${slug}::text))`
+          sql`SELECT graphile_worker.add_job('safe_update_verification', json_build_object('siteId', ${targetSiteId}::text, 'slug', ${slug}::text))`
         );
         results.push({ slug, success: true, status: "queued" });
       }
@@ -554,18 +593,13 @@ export const dashboardRoute = new Hono()
   // POST /api/updates/themes
   .post("/api/updates/themes", async (c) => {
     try {
-      const { siteId, slugs } = await c.req.json() as { siteId: string; slugs: string[] };
-      let targetSiteId = siteId;
-      if (!targetSiteId || !/^[0-9a-f-]{36}$/i.test(targetSiteId)) {
-        const [firstSite] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!firstSite) {
-          return c.json({ error: "No sites configured" }, 404);
-        }
-        targetSiteId = firstSite.id;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
       }
-
-      const [site] = await db.select().from(sites).where(eq(sites.id, targetSiteId)).limit(1);
-      if (!site) {
+      const { siteId, slugs } = await c.req.json() as { siteId: string; slugs: string[] };
+      const targetSiteId = await resolveOrgSiteId(orgId, siteId);
+      if (!targetSiteId) {
         return c.json({ error: "Site not found" }, 404);
       }
 
@@ -573,7 +607,7 @@ export const dashboardRoute = new Hono()
       for (const slug of slugs) {
         // Queue safe_update_verification for theme update!
         await db.execute(
-          sql`SELECT graphile_worker.add_job('safe_update_verification', json_build_object('siteId', ${site.id}::text, 'slug', ${slug}::text, 'type', 'theme'))`
+          sql`SELECT graphile_worker.add_job('safe_update_verification', json_build_object('siteId', ${targetSiteId}::text, 'slug', ${slug}::text, 'type', 'theme'))`
         );
         results.push({ slug, success: true, status: "queued" });
       }
@@ -587,17 +621,17 @@ export const dashboardRoute = new Hono()
   // POST /api/updates/core
   .post("/api/updates/core", async (c) => {
     try {
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
       const { siteId } = await c.req.json() as { siteId: string };
-      let targetSiteId = siteId;
-      if (!targetSiteId || !/^[0-9a-f-]{36}$/i.test(targetSiteId)) {
-        const [firstSite] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!firstSite) {
-          return c.json({ error: "No sites configured" }, 404);
-        }
-        targetSiteId = firstSite.id;
+      const targetSiteId = await resolveOrgSiteId(orgId, siteId);
+      if (!targetSiteId) {
+        return c.json({ error: "Site not found" }, 404);
       }
 
-      const [site] = await db.select().from(sites).where(eq(sites.id, targetSiteId)).limit(1);
+      const site = await getSiteByIdForOrg(db, targetSiteId, orgId);
       if (!site) {
         return c.json({ error: "Site not found" }, 404);
       }
@@ -642,15 +676,12 @@ export const dashboardRoute = new Hono()
   // GET /api/plugins (all plugins list for site)
   .get("/api/plugins", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let site;
-      
-      let querySiteId = siteId;
-      if (!querySiteId || !/^[0-9a-f-]{36}$/i.test(querySiteId)) {
-        [site] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!site) return c.json([]);
-        querySiteId = site.id;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
       }
+      const querySiteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!querySiteId) return c.json([]);
 
       const list = await db
         .select()
@@ -677,10 +708,14 @@ export const dashboardRoute = new Hono()
     }
   })
 
-  // GET /api/sites (list all sites)
+  // GET /api/sites (list the caller's org's sites)
   .get("/api/sites", async (c) => {
     try {
-      const list = await db.select().from(sites);
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
+      const list = await listSitesForOrg(db, orgId);
       const filtered = list.filter((s) => !s.url.includes("example"));
       return c.json(
         filtered.map((s) => ({
@@ -699,11 +734,18 @@ export const dashboardRoute = new Hono()
   // from the DB. Irreversible: the site's plugin will need to reconnect
   // with a freshly issued site_id/secret pair to be monitored again.
   .delete("/api/sites/:id", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     if (!/^[0-9a-f-]{36}$/i.test(id)) {
       return c.json({ error: "Invalid site id" }, 400);
     }
     try {
+      if (!(await getSiteByIdForOrg(db, id, orgId))) {
+        return c.json({ error: "Site not found" }, 404);
+      }
       const deleted = await db.delete(sites).where(eq(sites.id, id)).returning({ id: sites.id });
       if (deleted.length === 0) {
         return c.json({ error: "Site not found" }, 404);
@@ -717,14 +759,12 @@ export const dashboardRoute = new Hono()
   // GET Settings configuration
   .get("/api/settings", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let site;
-      
-      if (siteId && /^[0-9a-f-]{36}$/i.test(siteId)) {
-        [site] = await db.select().from(sites).where(eq(sites.id, siteId)).limit(1);
-      } else {
-        [site] = await db.select().from(sites).limit(1);
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
       }
+      const siteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      const site = siteId ? await getSiteByIdForOrg(db, siteId, orgId) : undefined;
 
       if (!site) {
         return c.json({ error: "Site not found" }, 404);
@@ -761,10 +801,13 @@ export const dashboardRoute = new Hono()
   // — the plugin picks this up on its next heartbeat (§4.3), the one channel
   // both execution paths already poll every 60s.
   .post("/api/sites/:id/kill-switch", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     try {
-      const [site] = await db.select().from(sites).where(eq(sites.id, id)).limit(1);
-      if (!site) {
+      if (!(await getSiteByIdForOrg(db, id, orgId))) {
         return c.json({ error: "Site not found" }, 404);
       }
 
@@ -777,7 +820,7 @@ export const dashboardRoute = new Hono()
       await db.insert(auditLog).values({
         siteId: id,
         eventType: parsed.data.active ? "kill_switch_activated" : "kill_switch_deactivated",
-        actor: "user",
+        actor: `user:${c.get("user").id}`,
         summary: parsed.data.active
           ? "User remotely disabled the plugin's execution capability."
           : "User re-enabled the plugin's execution capability.",
@@ -793,11 +836,18 @@ export const dashboardRoute = new Hono()
   // POST Settings updates
   .post("/api/settings", async (c) => {
     try {
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
       const body = await c.req.json() as any;
       const { siteId, permissionTier, allowedActions, url, title, notificationEmail, slackWebhookUrl } = body;
 
       if (!siteId || !permissionTier) {
         return c.json({ error: "Missing required parameters" }, 400);
+      }
+      if (!(await getSiteByIdForOrg(db, siteId, orgId))) {
+        return c.json({ error: "Site not found" }, 404);
       }
 
       const updates: any = { permissionTier };
@@ -831,15 +881,15 @@ export const dashboardRoute = new Hono()
   // Approval queues the same verified pipeline used by full-auto. It must
   // never claim success before the site action and health check both pass.
   .post("/api/incidents/:id/approve", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     try {
       console.log(`[API] Manual approval request received for incident: ${id}`);
-      
-      const [incident] = await db
-        .select()
-        .from(incidents)
-        .where(eq(incidents.id, id))
-        .limit(1);
+
+      const incident = await getIncidentForOrg(id, orgId);
 
       if (!incident) {
         console.error(`[API] Approve failed: incident ${id} not found in DB`);
@@ -874,9 +924,13 @@ export const dashboardRoute = new Hono()
   })
 
   .post("/api/incidents/:id/decline", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     try {
-      const [incident] = await db.select().from(incidents).where(eq(incidents.id, id)).limit(1);
+      const incident = await getIncidentForOrg(id, orgId);
       if (!incident) {
         return c.json({ error: "Incident not found" }, 404);
       }
@@ -902,9 +956,13 @@ export const dashboardRoute = new Hono()
   // approval" state it was in before, same status value the automated
   // fix pipeline itself uses for that state (§8.1's "escalate" branch).
   .post("/api/incidents/:id/reconsider", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     try {
-      const [incident] = await db.select().from(incidents).where(eq(incidents.id, id)).limit(1);
+      const incident = await getIncidentForOrg(id, orgId);
       if (!incident) {
         return c.json({ error: "Incident not found" }, 404);
       }
@@ -931,15 +989,15 @@ export const dashboardRoute = new Hono()
 
   // POST Rollback/restore incident deactivation manually
   .post("/api/incidents/:id/rollback", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     try {
       console.log(`[API] Manual rollback request received for incident: ${id}`);
-      
-      const [incident] = await db
-        .select()
-        .from(incidents)
-        .where(eq(incidents.id, id))
-        .limit(1);
+
+      const incident = await getIncidentForOrg(id, orgId);
 
       if (!incident) {
         console.error(`[API] Rollback failed: incident ${id} not found in DB`);
@@ -995,16 +1053,13 @@ export const dashboardRoute = new Hono()
   // GET /api/restore-points
   .get("/api/restore-points", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let site;
-      
-      let querySiteId = siteId;
-      if (!querySiteId || !/^[0-9a-f-]{36}$/i.test(querySiteId)) {
-        [site] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!site) {
-          return c.json([]);
-        }
-        querySiteId = site.id;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
+      }
+      const querySiteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!querySiteId) {
+        return c.json([]);
       }
 
       const list = await db
@@ -1048,10 +1103,14 @@ export const dashboardRoute = new Hono()
   // (see apps/api/src/snapshots/revert.ts), same mechanism the Dead Man's
   // Switch already uses automatically.
   .post("/api/restore-points/:id/revert", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     try {
       const [snapshot] = await db.select().from(snapshotsTable).where(eq(snapshotsTable.id, id)).limit(1);
-      if (!snapshot) {
+      if (!snapshot || !(await getSiteByIdForOrg(db, snapshot.siteId, orgId))) {
         return c.json({ error: "Restore point not found" }, 404);
       }
       if (!snapshot.workOrderId) {
@@ -1069,26 +1128,22 @@ export const dashboardRoute = new Hono()
   // GET /api/store
   .get("/api/store", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let site;
-      
-      let querySiteId = siteId;
-      if (!querySiteId || !/^[0-9a-f-]{36}$/i.test(querySiteId)) {
-        [site] = await db.select().from(sites).limit(1);
-        if (!site) {
-          return c.json({
-            checkoutStatus: "healthy",
-            lastCheckoutTest: "No checks yet",
-            checkoutTestsToday: 0,
-            paymentGateways: [],
-            revenue: { avgHourly: 0, protected30d: 0, currency: "USD", peakHours: "6 PM – 10 PM" },
-            checkoutSuccess: [],
-          });
-        }
-        querySiteId = site.id;
-      } else {
-        [site] = await db.select().from(sites).where(eq(sites.id, querySiteId)).limit(1);
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
       }
+      const querySiteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!querySiteId) {
+        return c.json({
+          checkoutStatus: "healthy",
+          lastCheckoutTest: "No checks yet",
+          checkoutTestsToday: 0,
+          paymentGateways: [],
+          revenue: { avgHourly: 0, protected30d: 0, currency: "USD", peakHours: "6 PM – 10 PM" },
+          checkoutSuccess: [],
+        });
+      }
+      const site = await getSiteByIdForOrg(db, querySiteId, orgId);
 
       if (!site) {
         return c.json({ error: "Site not found" }, 404);
@@ -1156,13 +1211,12 @@ export const dashboardRoute = new Hono()
   // GET /api/reports
   .get("/api/reports", async (c) => {
     try {
-      const siteId = c.req.query("siteId");
-      let querySiteId = siteId;
-      if (!querySiteId || !/^[0-9a-f-]{36}$/i.test(querySiteId)) {
-        const [site] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!site) return c.json([]);
-        querySiteId = site.id;
+      const orgId = requireOrgId(c);
+      if (!orgId) {
+        return c.json({ error: "user has no associated org" }, 403);
       }
+      const querySiteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!querySiteId) return c.json([]);
 
       // Generate report entries for the last 3 months
       const reportsList = [];
@@ -1206,6 +1260,10 @@ export const dashboardRoute = new Hono()
   // GET /api/reports/:id/export — CSV, not PDF: a real, queryable export
   // beats a "PDF" label with no PDF generator behind it.
   .get("/api/reports/:id/export", async (c) => {
+    const orgId = requireOrgId(c);
+    if (!orgId) {
+      return c.json({ error: "user has no associated org" }, 403);
+    }
     const { id } = c.req.param();
     const match = id.match(/^r-(\d{4})-(\d{1,2})$/);
     if (!match) {
@@ -1213,13 +1271,8 @@ export const dashboardRoute = new Hono()
     }
 
     try {
-      const siteId = c.req.query("siteId");
-      let querySiteId = siteId;
-      if (!querySiteId || !/^[0-9a-f-]{36}$/i.test(querySiteId)) {
-        const [site] = await db.select({ id: sites.id }).from(sites).limit(1);
-        if (!site) return c.json({ error: "No sites configured" }, 404);
-        querySiteId = site.id;
-      }
+      const querySiteId = await resolveOrgSiteId(orgId, c.req.query("siteId"));
+      if (!querySiteId) return c.json({ error: "No sites configured" }, 404);
 
       const year = Number(match[1]);
       const month = Number(match[2]) - 1; // JS month index

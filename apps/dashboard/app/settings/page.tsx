@@ -1,6 +1,6 @@
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
 
 import { useState, useEffect } from "react"
 import { Settings, ShieldCheck, Mail, Users, CreditCard, PlusCircle, Trash2, Eye, EyeOff, Copy, Check, ChevronDown, ChevronUp, Lock } from "lucide-react"
@@ -166,7 +166,7 @@ export default function SettingsPage() {
 
   // Fetch settings from API on load
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/settings`)
+    apiFetch(`/api/settings`)
       .then((r) => r.json())
       .then((data) => {
         setSiteId(data.id || "")
@@ -203,7 +203,7 @@ export default function SettingsPage() {
   ): Promise<boolean> => {
     setSaveError(null)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/settings`, {
+      const res = await apiFetch(`/api/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -367,7 +367,7 @@ export default function SettingsPage() {
     const prev = killSwitchActive
     setKillSwitchActive(nextActive)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sites/${siteId}/kill-switch`, {
+      const res = await apiFetch(`/api/sites/${siteId}/kill-switch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ active: nextActive }),
@@ -560,7 +560,7 @@ export default function SettingsPage() {
                       onClick={async () => {
                         if (!confirm("Type CONFIRM to disconnect site (This action is permanent).")) return;
                         try {
-                          const res = await fetch(`${API_BASE_URL}/api/sites/${siteId}`, { method: "DELETE" })
+                          const res = await apiFetch(`/api/sites/${siteId}`, { method: "DELETE" })
                           if (!res.ok) throw new Error(`Disconnect failed (${res.status})`)
                           alert("Site connection deactivated. Redirecting to onboarding...")
                         } catch (err) {

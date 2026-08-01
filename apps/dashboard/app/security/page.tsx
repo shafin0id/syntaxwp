@@ -1,6 +1,6 @@
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
@@ -55,7 +55,7 @@ export default function SecurityPage() {
   const [securityData, setSecurityData] = useState<any>(null)
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/security`)
+    apiFetch(`/api/security`)
       .then((r) => r.json())
       .then((data) => {
         setSecurityData(data);
@@ -64,7 +64,7 @@ export default function SecurityPage() {
       })
       .catch(console.error);
 
-    fetch(`${API_BASE_URL}/api/plugins`)
+    apiFetch(`/api/plugins`)
       .then((r) => r.json())
       .then((data) => setPluginState(data))
       .catch(console.error);

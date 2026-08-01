@@ -1,6 +1,6 @@
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
 
 import { useState, useEffect } from "react"
 import { History, ShieldAlert, Check, Loader2, RotateCcw, AlertTriangle, ArrowRight, Eye, PlusCircle } from "lucide-react"
@@ -25,7 +25,7 @@ export default function RestorePointsPage() {
   const [restoreError, setRestoreError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/restore-points`)
+    apiFetch(`/api/restore-points`)
       .then((r) => r.json())
       .then((data) => setPoints(data))
       .catch(console.error);
@@ -51,7 +51,7 @@ export default function RestorePointsPage() {
     setRestoreStep(1)
     setRestoreError(null)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/restore-points/${point.id}/revert`, { method: "POST" })
+      const res = await apiFetch(`/api/restore-points/${point.id}/revert`, { method: "POST" })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         setRestoreError(data.error || "Restore failed.")

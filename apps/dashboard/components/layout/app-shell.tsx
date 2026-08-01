@@ -8,7 +8,8 @@
 
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser"
 import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -236,9 +237,12 @@ export function AppShell({
                       <span>Account Settings</span>
                     </button>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         setProfileOpen(false)
-                        alert("Mock Logout triggered")
+                        const supabase = createSupabaseBrowserClient()
+                        await supabase.auth.signOut()
+                        router.push("/login")
+                        router.refresh()
                       }}
                       className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-muted text-danger hover:text-danger transition-colors cursor-pointer"
                     >
@@ -290,7 +294,7 @@ function SiteSwitcher() {
     const stored = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
     setSelectedSiteId(stored);
 
-    fetch(`${API_BASE_URL}/api/sites`)
+    apiFetch(`/api/sites`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {

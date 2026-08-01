@@ -1,6 +1,6 @@
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
 
 import { useState, useEffect } from "react"
 import {
@@ -53,12 +53,12 @@ export default function UpdatesPage() {
     const siteId = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
     if (!siteId) return;
 
-    const settingsUrl = `${API_BASE_URL}/api/settings?siteId=${siteId}`;
-    const updatesUrl = `${API_BASE_URL}/api/updates?siteId=${siteId}`;
-    const syncUrl = `${API_BASE_URL}/api/updates/sync?siteId=${siteId}`;
+    const settingsUrl = `/api/settings?siteId=${siteId}`;
+    const updatesUrl = `/api/updates?siteId=${siteId}`;
+    const syncUrl = `/api/updates/sync?siteId=${siteId}`;
 
     const fetchLocalData = () => {
-      fetch(settingsUrl)
+      apiFetch(settingsUrl)
         .then((r) => r.json())
         .then((data) => {
           setSite(data);
@@ -81,7 +81,7 @@ export default function UpdatesPage() {
         })
         .catch(console.error);
 
-      fetch(updatesUrl)
+      apiFetch(updatesUrl)
         .then((r) => r.json())
         .then((data) => {
           const mapped = data.map((p: any) => ({
@@ -100,7 +100,7 @@ export default function UpdatesPage() {
 
     if (triggerSync) {
       setIsChecking(true);
-      fetch(syncUrl, { method: "POST" })
+      apiFetch(syncUrl, { method: "POST" })
         .then((r) => r.json())
         .then(() => {
           setIsChecking(false);
@@ -139,7 +139,7 @@ export default function UpdatesPage() {
     let substepInterval: NodeJS.Timeout | null = null;
 
     const fetchStatus = (siteId: string, slug: string) =>
-      fetch(`${API_BASE_URL}/api/updates/status?siteId=${siteId}&slug=${slug}`)
+      apiFetch(`/api/updates/status?siteId=${siteId}&slug=${slug}`)
         .then((r) => r.json())
         .then((logs: any[]) => ({ slug, logs: logs || [] }))
         .catch((err) => {
@@ -226,7 +226,7 @@ export default function UpdatesPage() {
   const handleUpdateCore = () => {
     if (!confirm("This will update WordPress core on your live site. Are you sure you want to proceed?")) return;
     setIsUpdatingCore(true)
-    fetch(`${API_BASE_URL}/api/updates/core`, {
+    apiFetch(`/api/updates/core`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ siteId: site.id }),
@@ -264,7 +264,7 @@ export default function UpdatesPage() {
     setUpdatingPluginSlug(checkedPlugins[0])
     setPendingSlugs(checkedPlugins)
 
-    fetch(`${API_BASE_URL}/api/updates/plugins`, {
+    apiFetch(`/api/updates/plugins`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ siteId: site.id, slugs: checkedPlugins }),
@@ -302,7 +302,7 @@ export default function UpdatesPage() {
     setUpdatingPluginSlug(checkedThemes[0])
     setPendingSlugs(checkedThemes)
 
-    fetch(`${API_BASE_URL}/api/updates/themes`, {
+    apiFetch(`/api/updates/themes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ siteId: site.id, slugs: checkedThemes }),

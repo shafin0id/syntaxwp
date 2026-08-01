@@ -8,7 +8,7 @@
 
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
@@ -241,7 +241,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("deploying")
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/approve`, {
+                        const res = await apiFetch(`/api/incidents/${incident.id}/approve`, {
                           method: "POST"
                         });
                         if (res.ok) {
@@ -264,7 +264,7 @@ export function ExecutionStepperCard({
                     disabled={!isAwaiting}
                     onClick={async () => {
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/decline`, { method: "POST" })
+                        const res = await apiFetch(`/api/incidents/${incident.id}/decline`, { method: "POST" })
                         if (res.ok) {
                           setPhase("declined")
                           if (onActionComplete) onActionComplete()
@@ -307,7 +307,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("restoring")
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/rollback`, {
+                        const res = await apiFetch(`/api/incidents/${incident.id}/rollback`, {
                           method: "POST"
                         });
                         if (res.ok) {
@@ -345,7 +345,7 @@ export function ExecutionStepperCard({
                   <button
                     onClick={async () => {
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/reconsider`, { method: "POST" })
+                        const res = await apiFetch(`/api/incidents/${incident.id}/reconsider`, { method: "POST" })
                         if (res.ok) {
                           setPhase("awaiting")
                           if (onActionComplete) onActionComplete()
@@ -463,7 +463,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("deploying")
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/approve`, {
+                        const res = await apiFetch(`/api/incidents/${incident.id}/approve`, {
                           method: "POST"
                         })
                         if (res.ok) {
@@ -485,7 +485,7 @@ export function ExecutionStepperCard({
                   <Button
                     onClick={async () => {
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/decline`, { method: "POST" })
+                        const res = await apiFetch(`/api/incidents/${incident.id}/decline`, { method: "POST" })
                         if (res.ok) {
                           setPhase("declined")
                           if (onActionComplete) onActionComplete()
@@ -522,7 +522,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("restoring")
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/rollback`, {
+                        const res = await apiFetch(`/api/incidents/${incident.id}/rollback`, {
                           method: "POST"
                         });
                         if (res.ok) {
@@ -560,7 +560,7 @@ export function ExecutionStepperCard({
                   <button
                     onClick={async () => {
                       try {
-                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/reconsider`, { method: "POST" })
+                        const res = await apiFetch(`/api/incidents/${incident.id}/reconsider`, { method: "POST" })
                         if (res.ok) {
                           setPhase("awaiting")
                           if (onActionComplete) onActionComplete()

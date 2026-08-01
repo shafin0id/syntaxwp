@@ -7,7 +7,7 @@
 
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { RotateCcw, Lock, RefreshCw, ShieldAlert, ChevronRight, History } from "lucide-react"
@@ -24,17 +24,17 @@ export function StatusRail() {
   const awaitingCount = incidentsList.filter((i) => i.stage === "awaiting-approval").length
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/security`)
+    apiFetch(`/api/security`)
       .then((r) => r.json())
       .then((data) => setSecurityData(data))
       .catch(console.error);
 
-    fetch(`${API_BASE_URL}/api/restore-points`)
+    apiFetch(`/api/restore-points`)
       .then((r) => r.json())
       .then((data) => setRestorePoints(data))
       .catch(console.error);
 
-    fetch(`${API_BASE_URL}/api/updates`)
+    apiFetch(`/api/updates`)
       .then((r) => r.json())
       .then((data) => setPendingUpdatesCount(Array.isArray(data) ? data.length : 0))
       .catch(console.error);

@@ -1,6 +1,6 @@
 "use client"
 
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/api-fetch"
 
 import { useState, useEffect } from "react"
 import { FileText, ArrowDownToLine, Eye, Calendar, Sparkles, Loader2, ShieldCheck, Check } from "lucide-react"
@@ -17,7 +17,7 @@ export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<any | null>(null)
 
   const fetchReports = () => {
-    return fetch(`${API_BASE_URL}/api/reports`)
+    return apiFetch(`/api/reports`)
       .then((r) => r.json())
       .then((data) => setReports(data))
       .catch(console.error);
@@ -37,7 +37,7 @@ export default function ReportsPage() {
 
   const downloadReport = async (report: any) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/reports/${report.id}/export`)
+      const res = await apiFetch(`/api/reports/${report.id}/export`)
       if (!res.ok) {
         alert("Could not generate the export for this report.")
         return
