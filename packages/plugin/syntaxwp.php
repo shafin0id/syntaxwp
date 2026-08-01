@@ -26,6 +26,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 // needed on top of it.
 require_once __DIR__ . '/vendor/autoload.php';
 
+use SyntaxWP\Plugin\Admin\AdminMenu;
+use SyntaxWP\Plugin\Admin\SettingsController;
 use SyntaxWP\Plugin\Core\CapabilityRouter;
 use SyntaxWP\Plugin\Core\ErrorCapture;
 use SyntaxWP\Plugin\Core\EventQueue;
@@ -98,7 +100,12 @@ class SyntaxWP {
     public function define_constants() {
         define( 'SYNTAXWP_PLUGIN_FILE', __FILE__ );
         define( 'SYNTAXWP_PLUGIN_DIR', __DIR__ );
+        define( 'SYNTAXWP_PLUGIN_URL', untrailingslashit( plugins_url( '', __FILE__ ) ) );
         define( 'SYNTAXWP_PLUGIN_VERSION', '0.1.0' );
+
+        // Where the wp-admin marketing CTA points when no site is
+        // connected yet — a single override point, not hardcoded in JS.
+        define( 'SYNTAXWP_MARKETING_URL', 'https://syntaxwp.com' );
     }
 
     /**
@@ -124,6 +131,18 @@ class SyntaxWP {
             ( new AbilitiesRegistrar() )->registerHooks();
             ( new MCPEndpoints() )->registerHooks();
         }
+
+        // AdminMenu's hooks (admin_menu, admin_enqueue_scripts) only ever
+        // fire on wp-admin page loads, so gating its construction on
+        // is_admin() is a legitimate no-op removal for every other request.
+        // SettingsController is deliberately NOT gated the same way: its
+        // REST routes are called from a separate /wp-json/... request that
+        // is_admin() reports as false (only literal wp-admin/*.php loads
+        // count), so gating it here would silently 404 every settings save.
+        if ( is_admin() ) {
+            ( new AdminMenu() )->registerHooks();
+        }
+        ( new SettingsController() )->registerHooks();
     }
 }
 

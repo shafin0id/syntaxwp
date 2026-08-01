@@ -22,7 +22,8 @@
       "SyntaxWP\\Plugin\\Core\\": "core/",
       "SyntaxWP\\Plugin\\Safety\\": "safety/",
       "SyntaxWP\\Plugin\\Wp7\\": "wp7/",
-      "SyntaxWP\\Plugin\\MuWatchdog\\": "mu-watchdog/"
+      "SyntaxWP\\Plugin\\MuWatchdog\\": "mu-watchdog/",
+      "SyntaxWP\\Plugin\\Admin\\": "admin/"
     },
     "exclude-from-classmap": ["tests/"]
   },

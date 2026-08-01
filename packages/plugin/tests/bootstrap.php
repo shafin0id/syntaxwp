@@ -25,3 +25,20 @@ if (!defined('DB_NAME')) {
 // SyntaxWP_Watchdog themselves instead of relying on the file's own
 // bottom-of-file side effect.
 define('SYNTAXWP_PLUGIN_TESTING', true);
+
+// WP_Mock doesn't stub WP_Error itself — same minimal shape as
+// tests/integration-bootstrap.php's own stub, for code (SettingsController)
+// that returns a real WP_Error to signal a REST 4xx status.
+if (!class_exists('WP_Error')) {
+    final class WP_Error
+    {
+        public string $code;
+        public string $message;
+
+        public function __construct(string $code = '', string $message = '')
+        {
+            $this->code = $code;
+            $this->message = $message;
+        }
+    }
+}

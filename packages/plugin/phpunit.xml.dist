@@ -16,6 +16,7 @@
       <directory>safety</directory>
       <directory>wp7</directory>
       <directory>mu-watchdog</directory>
+      <directory>admin</directory>
     </include>
   </coverage>
 </phpunit>
