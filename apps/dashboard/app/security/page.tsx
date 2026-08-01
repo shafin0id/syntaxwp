@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ShieldCheck, Lock, ArrowUpRight, CheckCircle2, AlertTriangle, RefreshCw, Eye } from "lucide-react"
@@ -53,7 +55,7 @@ export default function SecurityPage() {
   const [securityData, setSecurityData] = useState<any>(null)
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/security")
+    fetch(`${API_BASE_URL}/api/security`)
       .then((r) => r.json())
       .then((data) => {
         setSecurityData(data);
@@ -62,7 +64,7 @@ export default function SecurityPage() {
       })
       .catch(console.error);
 
-    fetch("http://localhost:4000/api/plugins")
+    fetch(`${API_BASE_URL}/api/plugins`)
       .then((r) => r.json())
       .then((data) => setPluginState(data))
       .catch(console.error);
@@ -76,10 +78,15 @@ export default function SecurityPage() {
   ]
 
   const runScan = () => {
+    // ponytail: no on-demand scan endpoint exists yet (integrity checks
+    // currently only run on the worker's own schedule) — this just
+    // acknowledges the click rather than fabricating a fake file count.
+    // Upgrade path: wire this to a real POST /api/integrity/scan once one
+    // exists, the same way updates/security actions call the API today.
     setScanning(true)
     setTimeout(() => {
       setScanning(false)
-      setScanResult("Clean scan! All 4,812 WordPress core, plugin, and theme files match official checksums.")
+      setScanResult("Manual scan requested. File integrity is already checked automatically on a schedule — results will appear here once the next check completes.")
     }, 2500)
   }
 

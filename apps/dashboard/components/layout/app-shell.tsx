@@ -1,6 +1,6 @@
 /**
  * AppShell Component
- * 
+ *
  * Provides the global layout frame of the admin dashboard, including responsive
  * sidebars (Sidebar, StatusRail), global search bar, user menu, alert notifications panel,
  * and page frame wrapping.
@@ -8,6 +8,7 @@
 
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
 import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -289,7 +290,7 @@ function SiteSwitcher() {
     const stored = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
     setSelectedSiteId(stored);
 
-    fetch("http://localhost:4000/api/sites")
+    fetch(`${API_BASE_URL}/api/sites`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {

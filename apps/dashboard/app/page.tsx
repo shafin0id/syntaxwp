@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
@@ -34,7 +36,7 @@ function MetricCard({
   value: string
   icon: React.ComponentType<any>
   statusText: string
-  statusColor: "success" | "info"
+  statusColor: "success" | "info" | "warning"
   href: string
 }) {
   return (
@@ -57,7 +59,7 @@ function MetricCard({
         <span
           className={cn(
             "size-2 rounded-full shrink-0",
-            statusColor === "success" ? "bg-success" : "bg-primary"
+            statusColor === "success" ? "bg-success" : statusColor === "warning" ? "bg-warning" : "bg-primary"
           )}
         />
         <span className="text-xs text-muted-foreground truncate font-medium">
@@ -72,20 +74,24 @@ export default function OverviewPage() {
   const { incidentsList, refetch: fetchIncidents } = useStream()
   const [performanceData, setPerformanceData] = useState<any>(null)
   const [securityData, setSecurityData] = useState<any>(null)
+  const [securityError, setSecurityError] = useState(false)
   const [storeData, setStoreData] = useState<any>(null)
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/performance")
+    fetch(`${API_BASE_URL}/api/performance`)
       .then((r) => r.json())
       .then((data) => setPerformanceData(data))
       .catch(console.error)
 
-    fetch("http://localhost:4000/api/security")
+    fetch(`${API_BASE_URL}/api/security`)
       .then((r) => r.json())
       .then((data) => setSecurityData(data))
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err)
+        setSecurityError(true)
+      })
 
-    fetch("http://localhost:4000/api/store")
+    fetch(`${API_BASE_URL}/api/store`)
       .then((r) => r.json())
       .then((data) => setStoreData(data))
       .catch(console.error)
@@ -95,7 +101,10 @@ export default function OverviewPage() {
   const resolvedIncidents = incidentsList.filter((inc) => inc.stage === "resolved")
 
   const lcp = performanceData?.metrics?.[0]?.value || "1.4s"
-  const healthScore = securityData?.healthScore || 95
+  // No fallback to a fake "healthy" number here: a site-health dashboard that
+  // shows green when it can't actually reach /api/security is worse than one
+  // that shows nothing.
+  const healthScore = securityData?.healthScore
   const vulnerabilitiesCount = securityData?.vulnerabilitiesCount || 0
 
   const overviewCards = [
@@ -125,10 +134,16 @@ export default function OverviewPage() {
     },
     {
       title: "Security",
-      value: `${healthScore}%`,
+      value: healthScore != null ? `${healthScore}%` : securityError ? "Unavailable" : "—",
       icon: ShieldCheck,
-      statusText: vulnerabilitiesCount > 0 ? `${vulnerabilitiesCount} issues logged` : "Fully protected",
-      statusColor: healthScore > 85 ? ("success" as const) : ("info" as const),
+      statusText: securityError
+        ? "Could not reach security service"
+        : healthScore == null
+          ? "Loading..."
+          : vulnerabilitiesCount > 0
+            ? `${vulnerabilitiesCount} issues logged`
+            : "Fully protected",
+      statusColor: securityError ? ("warning" as const) : healthScore != null && healthScore > 85 ? ("success" as const) : ("info" as const),
       href: "/security",
     },
     {

@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import { ShoppingCart, RefreshCw, CheckCircle, AlertTriangle, ShieldCheck, DollarSign, ArrowDownToLine } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
@@ -19,7 +21,7 @@ export default function StoreProtectionPage() {
   const [storeData, setStoreData] = useState<any>(null)
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/store")
+    fetch(`${API_BASE_URL}/api/store`)
       .then((r) => r.json())
       .then((data) => {
         setStoreData(data);

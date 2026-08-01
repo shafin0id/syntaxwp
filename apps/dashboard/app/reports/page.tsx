@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import { FileText, ArrowDownToLine, Eye, Calendar, Sparkles, Loader2, ShieldCheck, Check } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
@@ -15,7 +17,7 @@ export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<any | null>(null)
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/reports")
+    fetch(`${API_BASE_URL}/api/reports`)
       .then((r) => r.json())
       .then((data) => setReports(data))
       .catch(console.error);

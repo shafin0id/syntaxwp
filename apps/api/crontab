@@ -21,3 +21,12 @@
 
 # 15-min synthetic TTFB pings — state-machine regression detection + auto-remediation.
 */15 * * * * performance_ping
+
+# WPVulnerability.net feed sync — matches installed plugins/core against known CVEs.
+*/15 * * * * vulnerability_feed_sync
+
+# SSL cert + domain expiry checks.
+*/15 * * * * ssl_domain_watch
+
+# Daily headless WooCommerce checkout probe.
+0 2 * * * synthetic_checkout_check

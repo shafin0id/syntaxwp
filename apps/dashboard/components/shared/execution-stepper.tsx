@@ -1,6 +1,6 @@
 /**
  * ExecutionStepperCard Component
- * 
+ *
  * Renders an interactive multi-step process for resolving an incident.
  * Supports "overview" (compact card layout) and "detail" (expanded grid split-pane layout) variants.
  * Orchestrates step progression states (done, current, upcoming) and safety rollbacks.
@@ -8,6 +8,7 @@
 
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
@@ -232,7 +233,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("deploying")
                       try {
-                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/approve`, {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/approve`, {
                           method: "POST"
                         });
                         if (res.ok) {
@@ -286,7 +287,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("restoring")
                       try {
-                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/rollback`, {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/rollback`, {
                           method: "POST"
                         });
                         if (res.ok) {
@@ -430,7 +431,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("deploying")
                       try {
-                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/approve`, {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/approve`, {
                           method: "POST"
                         })
                         if (res.ok) {
@@ -477,7 +478,7 @@ export function ExecutionStepperCard({
                     onClick={async () => {
                       setPhase("restoring")
                       try {
-                        const res = await fetch(`http://localhost:4000/api/incidents/${incident.id}/rollback`, {
+                        const res = await fetch(`${API_BASE_URL}/api/incidents/${incident.id}/rollback`, {
                           method: "POST"
                         });
                         if (res.ok) {

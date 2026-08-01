@@ -1,6 +1,8 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect } from "react"
+import { API_BASE_URL } from "./config"
+
+import React, { createContext, useContext, useState, useEffect, useRef } from "react"
 import { mapApiIncidentToDashboardIncident } from "./api"
 
 interface StreamContextType {
@@ -11,19 +13,30 @@ interface StreamContextType {
 
 const StreamContext = createContext<StreamContextType | undefined>(undefined)
 
+const RECONNECT_BASE_MS = 1000
+const RECONNECT_MAX_MS = 30000
+
 export function StreamProvider({ children }: { children: React.ReactNode }) {
   const [incidentsList, setIncidentsList] = useState<any[]>([])
   const [auditLogs, setAuditLogs] = useState<any[]>([])
+  // Bumped on every refetch() call so a response for an older request (e.g.
+  // from a site that's no longer selected) can't overwrite a newer one that
+  // resolved first.
+  const refetchSeq = useRef(0)
 
   const refetch = () => {
+    const seq = ++refetchSeq.current
     const siteId = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
-    const url = siteId 
-      ? `http://localhost:4000/api/incidents?siteId=${siteId}` 
-      : "http://localhost:4000/api/incidents";
+    const url = siteId
+      ? `${API_BASE_URL}/api/incidents?siteId=${siteId}`
+      : `${API_BASE_URL}/api/incidents`;
 
     fetch(url)
       .then((r) => r.json())
-      .then((data) => setIncidentsList(data.map(mapApiIncidentToDashboardIncident)))
+      .then((data) => {
+        if (seq !== refetchSeq.current) return; // a newer refetch already started
+        setIncidentsList(data.map(mapApiIncidentToDashboardIncident))
+      })
       .catch(console.error)
   }
 
@@ -31,16 +44,21 @@ export function StreamProvider({ children }: { children: React.ReactNode }) {
     let active = true
     let eventSource: EventSource | null = null
     let reconnectTimeout: any = null
+    let reconnectDelay = RECONNECT_BASE_MS
 
     function connect() {
       if (!active) return
 
       const siteId = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
-      const url = siteId 
-        ? `http://localhost:4000/api/stream?siteId=${siteId}` 
-        : "http://localhost:4000/api/stream";
+      const url = siteId
+        ? `${API_BASE_URL}/api/stream?siteId=${siteId}`
+        : `${API_BASE_URL}/api/stream`;
 
       eventSource = new EventSource(url)
+
+      eventSource.onopen = () => {
+        reconnectDelay = RECONNECT_BASE_MS
+      }
 
       eventSource.addEventListener("update", (event: MessageEvent) => {
         try {
@@ -60,8 +78,8 @@ export function StreamProvider({ children }: { children: React.ReactNode }) {
         if (eventSource) {
           eventSource.close()
         }
-        // Try reconnecting in 3 seconds
-        reconnectTimeout = setTimeout(connect, 3000)
+        reconnectTimeout = setTimeout(connect, reconnectDelay)
+        reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS)
       }
     }
 

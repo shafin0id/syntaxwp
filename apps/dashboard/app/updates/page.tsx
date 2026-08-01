@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import {
   ArrowUpCircle,
@@ -36,7 +38,13 @@ export default function UpdatesPage() {
   const [safeStatus, setSafeStatus] = useState<"running" | "completed">("completed")
   const [subStep, setSubStep] = useState(0)
   const [safeUpdatesCollapsed, setSafeUpdatesCollapsed] = useState(true)
+  // Drives the single visible stepper (step visuals only follow this one
+  // item even in a batch — see the tracking effect below for the actual
+  // per-item completion logic).
   const [updatingPluginSlug, setUpdatingPluginSlug] = useState<string | null>(null)
+  // Every slug queued in the current batch — the batch isn't "done" until
+  // every one of these has reached a terminal state, not just the first.
+  const [pendingSlugs, setPendingSlugs] = useState<string[]>([])
 
   // Plugins state (only those with updates)
   const [plugins, setPlugins] = useState<any[]>([])
@@ -45,9 +53,9 @@ export default function UpdatesPage() {
     const siteId = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
     if (!siteId) return;
 
-    const settingsUrl = `http://localhost:4000/api/settings?siteId=${siteId}`;
-    const updatesUrl = `http://localhost:4000/api/updates?siteId=${siteId}`;
-    const syncUrl = `http://localhost:4000/api/updates/sync?siteId=${siteId}`;
+    const settingsUrl = `${API_BASE_URL}/api/settings?siteId=${siteId}`;
+    const updatesUrl = `${API_BASE_URL}/api/updates?siteId=${siteId}`;
+    const syncUrl = `${API_BASE_URL}/api/updates/sync?siteId=${siteId}`;
 
     const fetchLocalData = () => {
       fetch(settingsUrl)
@@ -130,62 +138,77 @@ export default function UpdatesPage() {
     let isSubstepActive = false;
     let substepInterval: NodeJS.Timeout | null = null;
 
+    const fetchStatus = (siteId: string, slug: string) =>
+      fetch(`${API_BASE_URL}/api/updates/status?siteId=${siteId}&slug=${slug}`)
+        .then((r) => r.json())
+        .then((logs: any[]) => ({ slug, logs: logs || [] }))
+        .catch((err) => {
+          console.error(err);
+          return { slug, logs: [] as any[] };
+        });
+
     const intervalId = setInterval(() => {
       const siteId = typeof window !== "undefined" ? localStorage.getItem("selectedSiteId") : null;
       if (!siteId) return;
 
-      fetch(`http://localhost:4000/api/updates/status?siteId=${siteId}&slug=${updatingPluginSlug}`)
-        .then((r) => r.json())
-        .then((logs: any[]) => {
-          if (!logs || logs.length === 0) return;
+      const batch = pendingSlugs.length > 0 ? pendingSlugs : [updatingPluginSlug];
 
-          let currentStep = 0;
-          let status: "running" | "completed" = "running";
-          let failed = false;
-          let failReason = "";
+      Promise.all(batch.map((slug) => fetchStatus(siteId, slug))).then((results) => {
+        // Step visuals only ever follow the first item in the batch —
+        // ponytail: single stepper, add a per-item progress list if a
+        // batch update ever needs to show more than aggregate pass/fail.
+        const primary = results.find((r) => r.slug === updatingPluginSlug) || results[0];
+        let currentStep = 0;
+        for (const log of primary.logs) {
+          if (log.eventType === "update_started") currentStep = 1;
+          else if (log.eventType === "update_baseline_captured") currentStep = 2;
+          else if (log.eventType === "update_applied") currentStep = 3;
+          else if (log.eventType === "update_verified") currentStep = 4;
+          else if (log.eventType === "update_success") currentStep = 5;
+        }
+        setSafeStep(currentStep);
 
-          for (const log of logs) {
-            if (log.eventType === "update_started") {
-              currentStep = 1;
-            } else if (log.eventType === "update_baseline_captured") {
-              currentStep = 2;
-            } else if (log.eventType === "update_applied") {
-              currentStep = 3;
-            } else if (log.eventType === "update_verified") {
-              currentStep = 4;
-            } else if (log.eventType === "update_success") {
-              currentStep = 5;
-              status = "completed";
-            } else if (log.eventType === "update_failed") {
-              status = "completed";
-              failed = true;
-              failReason = log.summary;
-            }
+        if (currentStep === 3 && !isSubstepActive) {
+          isSubstepActive = true;
+          let currentSub = 0;
+          substepInterval = setInterval(() => {
+            currentSub = currentSub < 3 ? currentSub + 1 : currentSub;
+            setSubStep(currentSub);
+          }, 2000);
+        }
+
+        // The batch is only done once every queued slug has reached a
+        // terminal event — a single finished item no longer closes the
+        // stepper out from under the rest of the batch.
+        let anyFailed = false;
+        let failReason = "";
+        const allTerminal = results.every(({ logs }) => {
+          const terminal = logs.find(
+            (log: any) => log.eventType === "update_success" || log.eventType === "update_failed"
+          );
+          if (terminal?.eventType === "update_failed") {
+            anyFailed = true;
+            failReason = failReason || terminal.summary;
           }
+          return Boolean(terminal);
+        });
 
-          setSafeStep(currentStep);
-          setSafeStatus(status);
-
-          if (currentStep === 3 && !isSubstepActive) {
-            isSubstepActive = true;
-            let currentSub = 0;
-            substepInterval = setInterval(() => {
-              currentSub = currentSub < 3 ? currentSub + 1 : currentSub;
-              setSubStep(currentSub);
-            }, 2000);
+        if (allTerminal) {
+          setSafeStatus("completed");
+          clearInterval(intervalId);
+          if (substepInterval) clearInterval(substepInterval);
+          setUpdatingPluginSlug(null);
+          setPendingSlugs([]);
+          loadUpdatesData(false);
+          if (anyFailed) {
+            alert(
+              batch.length > 1
+                ? `Safe Update failed for at least one item in the batch: ${failReason}`
+                : "Safe Update failed: " + failReason
+            );
           }
-
-          if (status === "completed") {
-            clearInterval(intervalId);
-            if (substepInterval) clearInterval(substepInterval);
-            setUpdatingPluginSlug(null);
-            loadUpdatesData(false);
-            if (failed) {
-              alert("Safe Update failed: " + failReason);
-            }
-          }
-        })
-        .catch(console.error);
+        }
+      });
     }, 1500);
 
     return () => {
@@ -201,8 +224,9 @@ export default function UpdatesPage() {
 
   // WordPress Core Update Handler
   const handleUpdateCore = () => {
+    if (!confirm("This will update WordPress core on your live site. Are you sure you want to proceed?")) return;
     setIsUpdatingCore(true)
-    fetch("http://localhost:4000/api/updates/core", {
+    fetch(`${API_BASE_URL}/api/updates/core`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ siteId: site.id }),
@@ -230,6 +254,7 @@ export default function UpdatesPage() {
   const handleUpdatePlugins = () => {
     const checkedPlugins = plugins.filter((p) => p.checked).map((p) => p.slug)
     if (checkedPlugins.length === 0) return;
+    if (!confirm(`This will update ${checkedPlugins.length} plugin(s) on your live site. Are you sure you want to proceed?`)) return;
 
     setIsUpdatingPlugins(true)
     setSafeUpdatesCollapsed(false)
@@ -237,8 +262,9 @@ export default function UpdatesPage() {
     setSubStep(0)
     setSafeStatus("running")
     setUpdatingPluginSlug(checkedPlugins[0])
+    setPendingSlugs(checkedPlugins)
 
-    fetch("http://localhost:4000/api/updates/plugins", {
+    fetch(`${API_BASE_URL}/api/updates/plugins`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ siteId: site.id, slugs: checkedPlugins }),
@@ -249,12 +275,14 @@ export default function UpdatesPage() {
         if (!res.success) {
           alert("Plugin update failed: " + (res.error || "Unknown error"));
           setUpdatingPluginSlug(null);
+          setPendingSlugs([]);
           setSafeStatus("completed");
         }
       })
       .catch((err) => {
         setIsUpdatingPlugins(false)
         setUpdatingPluginSlug(null);
+        setPendingSlugs([]);
         setSafeStatus("completed");
         console.error(err);
       });
@@ -264,6 +292,7 @@ export default function UpdatesPage() {
   const handleUpdateThemes = () => {
     const checkedThemes = themes.filter((t) => t.checked).map((t) => t.slug)
     if (checkedThemes.length === 0) return;
+    if (!confirm(`This will update ${checkedThemes.length} theme(s) on your live site. Are you sure you want to proceed?`)) return;
 
     setIsUpdatingThemes(true)
     setSafeUpdatesCollapsed(false)
@@ -271,8 +300,9 @@ export default function UpdatesPage() {
     setSubStep(0)
     setSafeStatus("running")
     setUpdatingPluginSlug(checkedThemes[0])
+    setPendingSlugs(checkedThemes)
 
-    fetch("http://localhost:4000/api/updates/themes", {
+    fetch(`${API_BASE_URL}/api/updates/themes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ siteId: site.id, slugs: checkedThemes }),
@@ -283,12 +313,14 @@ export default function UpdatesPage() {
         if (!res.success) {
           alert("Theme update failed: " + (res.error || "Unknown error"));
           setUpdatingPluginSlug(null);
+          setPendingSlugs([]);
           setSafeStatus("completed");
         }
       })
       .catch((err) => {
         setIsUpdatingThemes(false)
         setUpdatingPluginSlug(null);
+        setPendingSlugs([]);
         setSafeStatus("completed");
         console.error(err);
       });

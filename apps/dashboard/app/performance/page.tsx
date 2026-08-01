@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import { Gauge, Smartphone, Monitor, CheckCircle, RefreshCw, Zap, Shield, AlertTriangle, Clock } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
@@ -25,7 +27,7 @@ export default function PerformancePage() {
   const [perfData, setPerfData] = useState<any>(null)
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/performance")
+    fetch(`${API_BASE_URL}/api/performance`)
       .then((r) => r.json())
       .then((data) => setPerfData(data))
       .catch(console.error)

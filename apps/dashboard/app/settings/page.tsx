@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import { Settings, ShieldCheck, Mail, Users, CreditCard, PlusCircle, Trash2, Eye, EyeOff, Copy, Check, ChevronDown, ChevronUp, Lock } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
@@ -138,12 +140,17 @@ export default function SettingsPage() {
   const [customExpanded, setCustomExpanded] = useState(false)
 
   // Notifications & team
-  const [notificationEmail, setNotificationEmail] = useState("owner@greenleafbotanicals.com")
-  const [slackWebhook, setSlackWebhook] = useState("https://hooks.slack.com/services/...")
+  const [notificationEmail, setNotificationEmail] = useState("")
+  const [slackWebhook, setSlackWebhook] = useState("")
   const [team, setTeam] = useState(initialTeam)
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState("Editor")
   const [loading, setLoading] = useState(true)
+
+  // Save feedback — shared by every tab that persists to /api/settings
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveSuccessTab, setSaveSuccessTab] = useState<string | null>(null)
 
   const tabs = [
     { id: "general", label: "General" },
@@ -155,15 +162,17 @@ export default function SettingsPage() {
 
   // Fetch settings from API on load
   useEffect(() => {
-    fetch("http://localhost:4000/api/settings")
+    fetch(`${API_BASE_URL}/api/settings`)
       .then((r) => r.json())
       .then((data) => {
         setSiteId(data.id || "")
         setSiteSecret(data.siteSecret || "")
-        setSiteName(data.url || "")
+        setSiteName(data.title || "")
         setDomain(data.url || "")
         setWpVersion(data.wpVersion || "Unknown")
-        
+        setNotificationEmail(data.notificationEmail || "")
+        setSlackWebhook(data.slackWebhookUrl || "")
+
         const tier = data.permissionTier || "some_access"
         setPermTier(tier === "some_access" ? "custom" : tier)
         setAllowedActions(data.allowedActions || [])
@@ -179,29 +188,49 @@ export default function SettingsPage() {
       })
   }, [])
 
-  // Call API to save settings
-  const saveSettingsToDB = async (tier: string, actions: string[]) => {
+  // Call API to save settings. Returns whether the save actually succeeded
+  // so callers that update state optimistically can roll back on failure
+  // instead of leaving the UI showing something the backend never applied.
+  const saveSettingsToDB = async (
+    tier: string,
+    actions: string[],
+    extra?: { title?: string; url?: string; notificationEmail?: string; slackWebhookUrl?: string }
+  ): Promise<boolean> => {
+    setSaveError(null)
     try {
-      await fetch("http://localhost:4000/api/settings", {
+      const res = await fetch(`${API_BASE_URL}/api/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           siteId,
           permissionTier: tier === "custom" ? "custom" : tier,
           allowedActions: actions,
-          url: domain || undefined,
+          url: extra?.url ?? (domain || undefined),
+          title: extra?.title,
+          notificationEmail: extra?.notificationEmail,
+          slackWebhookUrl: extra?.slackWebhookUrl,
         }),
       })
+      if (!res.ok) {
+        throw new Error(`Save failed (${res.status})`)
+      }
+      return true
     } catch (err) {
       console.error("Failed to save settings:", err)
+      setSaveError("Couldn't save changes — please try again.")
+      return false
     }
   }
 
   // Handle Mode Selection click
-  const handleModeChange = (mode: string) => {
+  const handleModeChange = async (mode: string) => {
+    const prevTier = permTier
+    const prevActions = allowedActions
+    const prevExpanded = customExpanded
+
     setPermTier(mode)
     let newActions: string[] = []
-    
+
     if (mode === "full_auto") {
       newActions = defaultPermissions.map(p => p.action)
       setCustomExpanded(false)
@@ -216,14 +245,22 @@ export default function SettingsPage() {
       }
       setCustomExpanded(true)
     }
-    
+
     setAllowedActions(newActions)
-    saveSettingsToDB(mode, newActions)
+    const ok = await saveSettingsToDB(mode, newActions)
+    if (!ok) {
+      setPermTier(prevTier)
+      setAllowedActions(prevActions)
+      setCustomExpanded(prevExpanded)
+    }
   }
 
   // Handle individual capability toggle
   const handleToggleAction = (actionSlug: string, alwaysOn?: boolean) => {
     if (alwaysOn) return
+
+    const prevTier = permTier
+    const prevActions = allowedActions
 
     setAllowedActions((prev) => {
       let nextActions = [...prev]
@@ -251,7 +288,12 @@ export default function SettingsPage() {
       }
 
       setPermTier(finalMode)
-      saveSettingsToDB(finalMode, nextActions)
+      saveSettingsToDB(finalMode, nextActions).then((ok) => {
+        if (!ok) {
+          setPermTier(prevTier)
+          setAllowedActions(prevActions)
+        }
+      })
       return nextActions
     })
   }
@@ -260,6 +302,31 @@ export default function SettingsPage() {
     navigator.clipboard.writeText(text)
     setter(true)
     setTimeout(() => setter(false), 2000)
+  }
+
+  const handleSaveGeneral = async () => {
+    setSaving(true)
+    setSaveSuccessTab(null)
+    const ok = await saveSettingsToDB(permTier, allowedActions, { title: siteName, url: domain })
+    setSaving(false)
+    if (ok) {
+      setSaveSuccessTab("general")
+      setTimeout(() => setSaveSuccessTab(null), 2500)
+    }
+  }
+
+  const handleSaveNotifications = async () => {
+    setSaving(true)
+    setSaveSuccessTab(null)
+    const ok = await saveSettingsToDB(permTier, allowedActions, {
+      notificationEmail,
+      slackWebhookUrl: slackWebhook,
+    })
+    setSaving(false)
+    if (ok) {
+      setSaveSuccessTab("notifications")
+      setTimeout(() => setSaveSuccessTab(null), 2500)
+    }
   }
 
   const handleInvite = (e: React.FormEvent) => {
@@ -365,9 +432,12 @@ export default function SettingsPage() {
                         <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground block">Site Secret (For HMAC Signing)</label>
                         <div className="flex items-center gap-2 mt-1">
                           <input
-                            type={showSecret ? "text" : "password"}
+                            type="text"
                             readOnly
-                            value={siteSecret}
+                            // The real value only ever reaches the DOM once the user
+                            // explicitly asks to see it — a fixed-width mask otherwise,
+                            // not just an obscured <input type="password">.
+                            value={showSecret ? siteSecret : "•".repeat(32)}
                             className="h-9 flex-1 rounded-lg border border-border bg-muted/30 px-3 text-sm font-mono outline-none"
                           />
                           <button
@@ -404,6 +474,22 @@ export default function SettingsPage() {
                         <span className="font-semibold">Legacy Outbound Plugin</span>
                       </div>
                     </div>
+
+                    <div className="flex items-center gap-3 pt-3 border-t border-border">
+                      <button
+                        onClick={handleSaveGeneral}
+                        disabled={saving}
+                        className="rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {saving ? "Saving..." : "Save Changes"}
+                      </button>
+                      {saveSuccessTab === "general" && (
+                        <span className="text-xs font-semibold text-success">Saved.</span>
+                      )}
+                      {saveError && (
+                        <span className="text-xs font-semibold text-danger">{saveError}</span>
+                      )}
+                    </div>
                   </div>
                 </Card>
 
@@ -417,9 +503,15 @@ export default function SettingsPage() {
                       </p>
                     </div>
                     <button
-                      onClick={() => {
-                        if (confirm("Type CONFIRM to disconnect site (This action is permanent).")) {
+                      onClick={async () => {
+                        if (!confirm("Type CONFIRM to disconnect site (This action is permanent).")) return;
+                        try {
+                          const res = await fetch(`${API_BASE_URL}/api/sites/${siteId}`, { method: "DELETE" })
+                          if (!res.ok) throw new Error(`Disconnect failed (${res.status})`)
                           alert("Site connection deactivated. Redirecting to onboarding...")
+                        } catch (err) {
+                          console.error("Failed to disconnect site:", err)
+                          alert("Couldn't disconnect the site — please try again.")
                         }
                       }}
                       className="rounded-lg bg-destructive text-destructive-foreground px-4 py-2 text-xs font-semibold hover:bg-destructive/90 transition-all shrink-0 cursor-pointer"
@@ -583,6 +675,22 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 </Card>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleSaveNotifications}
+                    disabled={saving}
+                    className="rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {saving ? "Saving..." : "Save Changes"}
+                  </button>
+                  {saveSuccessTab === "notifications" && (
+                    <span className="text-xs font-semibold text-success">Saved.</span>
+                  )}
+                  {saveError && (
+                    <span className="text-xs font-semibold text-danger">{saveError}</span>
+                  )}
+                </div>
               </div>
             )}
 

@@ -40,9 +40,12 @@ export function mapApiIncidentToDashboardIncident(apiInc: any): any {
     reversible: "Yes, instantly",
     steps,
     evidence: [
-      { label: "Incident UUID", value: apiInc.id.slice(0, 8) },
+      { label: "Incident UUID", value: typeof apiInc.id === "string" ? apiInc.id.slice(0, 8) : "unknown" },
       { label: "Type", value: apiInc.type },
-      { label: "Detected At", value: new Date(apiInc.detectedAt).toLocaleTimeString() },
+      {
+        label: "Detected At",
+        value: apiInc.detectedAt ? new Date(apiInc.detectedAt).toLocaleTimeString() : "unknown",
+      },
     ],
   };
 }

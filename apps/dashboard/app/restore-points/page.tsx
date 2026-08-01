@@ -1,5 +1,7 @@
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
+
 import { useState, useEffect } from "react"
 import { History, ShieldAlert, Check, Loader2, RotateCcw, AlertTriangle, ArrowRight, Eye, PlusCircle } from "lucide-react"
 import { AppShell } from "@/components/layout/app-shell"
@@ -29,7 +31,7 @@ export default function RestorePointsPage() {
   const [simulationSteps, setSimulationSteps] = useState<RestoreStep[]>([])
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/restore-points")
+    fetch(`${API_BASE_URL}/api/restore-points`)
       .then((r) => r.json())
       .then((data) => setPoints(data))
       .catch(console.error);

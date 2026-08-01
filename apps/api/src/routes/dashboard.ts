@@ -693,6 +693,25 @@ export const dashboardRoute = new Hono()
     }
   })
 
+  // DELETE a site — disconnects it, removing the row (and its HMAC secret)
+  // from the DB. Irreversible: the site's plugin will need to reconnect
+  // with a freshly issued site_id/secret pair to be monitored again.
+  .delete("/api/sites/:id", async (c) => {
+    const { id } = c.req.param();
+    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      return c.json({ error: "Invalid site id" }, 400);
+    }
+    try {
+      const deleted = await db.delete(sites).where(eq(sites.id, id)).returning({ id: sites.id });
+      if (deleted.length === 0) {
+        return c.json({ error: "Site not found" }, 404);
+      }
+      return c.json({ success: true });
+    } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  })
+
   // GET Settings configuration
   .get("/api/settings", async (c) => {
     try {
@@ -719,12 +738,15 @@ export const dashboardRoute = new Hono()
       return c.json({
         id: site.id,
         url: site.url,
+        title: site.title,
         wpVersion: site.wpVersion,
         availableWpVersion: site.availableWpVersion,
         themes: site.themes || [],
         wooEnabled: site.wooEnabled,
         permissionTier: site.permissionTier,
         allowedActions: site.allowedActions || [],
+        notificationEmail: site.notificationEmail,
+        slackWebhookUrl: site.slackWebhookUrl,
         siteSecret,
       });
     } catch (err: any) {
@@ -736,7 +758,7 @@ export const dashboardRoute = new Hono()
   .post("/api/settings", async (c) => {
     try {
       const body = await c.req.json() as any;
-      const { siteId, permissionTier, allowedActions, url } = body;
+      const { siteId, permissionTier, allowedActions, url, title, notificationEmail, slackWebhookUrl } = body;
 
       if (!siteId || !permissionTier) {
         return c.json({ error: "Missing required parameters" }, 400);
@@ -748,6 +770,15 @@ export const dashboardRoute = new Hono()
       }
       if (url) {
         updates.url = url;
+      }
+      if (typeof title === "string") {
+        updates.title = title;
+      }
+      if (typeof notificationEmail === "string") {
+        updates.notificationEmail = notificationEmail;
+      }
+      if (typeof slackWebhookUrl === "string") {
+        updates.slackWebhookUrl = slackWebhookUrl;
       }
 
       await db

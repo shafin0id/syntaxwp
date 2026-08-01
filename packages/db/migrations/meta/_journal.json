@@ -85,6 +85,13 @@
       "when": 1783832457995,
       "tag": "0011_overconfident_pepper_potts",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785565816654,
+      "tag": "0012_add_site_notification_settings",
+      "breakpoints": true
     }
   ]
 }

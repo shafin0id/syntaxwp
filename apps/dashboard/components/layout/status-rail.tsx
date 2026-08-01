@@ -1,12 +1,13 @@
 /**
  * StatusRail Component
- * 
+ *
  * Renders the global status sidebar showing store health score dial, current operational
  * statuses (Stripe, Cloudflare, etc.), and recent restore point list.
  */
 
 "use client"
 
+import { API_BASE_URL } from "@/lib/config"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { RotateCcw, Lock, RefreshCw, ShieldAlert, ChevronRight, History } from "lucide-react"
@@ -18,12 +19,12 @@ export function StatusRail() {
   const [restorePoints, setRestorePoints] = useState<any[]>([])
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/security")
+    fetch(`${API_BASE_URL}/api/security`)
       .then((r) => r.json())
       .then((data) => setSecurityData(data))
       .catch(console.error);
 
-    fetch("http://localhost:4000/api/restore-points")
+    fetch(`${API_BASE_URL}/api/restore-points`)
       .then((r) => r.json())
       .then((data) => setRestorePoints(data))
       .catch(console.error);

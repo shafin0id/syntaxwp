@@ -25,5 +25,7 @@ export const sites = pgTable("sites", {
   title: text("title"),
   availableWpVersion: text("available_wp_version"),
   themes: json("themes").$type<any[]>().default([]).notNull(),
+  notificationEmail: text("notification_email"),
+  slackWebhookUrl: text("slack_webhook_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
