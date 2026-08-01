@@ -265,6 +265,52 @@ pnpm --filter @syntaxwp/api dev
 pnpm --filter @syntaxwp/api worker
 ```
 
+### 6.1 Custom Local Domains + HTTPS (optional)
+
+By default the dashboard/API are only reachable on `localhost:3000`/`localhost:4000`. If you want
+`https://app.syntaxwp.test` and `https://api.syntaxwp.test` instead — e.g. to match a production-like
+origin, or to test cookie/CORS behavior that depends on a real domain — a small Node-only proxy
+(`scripts/https-proxy.mjs`) handles it. It doesn't use Laravel Valet or WP Engine's Local app; no
+extra system tool required beyond what's already a `devDependency` (`devcert`, `http-proxy`).
+
+**Port 443 has exactly one owner at a time.** If you also run Valet or WP Engine's **Local** app for
+other WordPress sites, one of them is very likely already bound to `:443` system-wide — check with
+`lsof -iTCP:443 -sTCP:LISTEN`. If so, quit/stop it before `pnpm dev:https` (Local: quit the app
+entirely from its menu, there's no CLI toggle; Valet: `valet stop`), and restart it after. Only one
+of "this project's proxy" or "your other local sites" can serve `:443` at any given moment.
+
+One-time setup:
+
+```bash
+# 1. Map the two hostnames to localhost. Uses a leading newline + `tee -a` rather than a plain
+#    `echo ... >> /etc/hosts` — if the file doesn't already end in a newline (common when Valet/Local
+#    manage entries), a plain append lands on the same line as the last existing entry and silently
+#    fails to resolve.
+printf '\n127.0.0.1 app.syntaxwp.test\n127.0.0.1 api.syntaxwp.test\n' | sudo tee -a /etc/hosts >/dev/null
+
+# 2. Point the dashboard/api at the new origins
+# apps/dashboard/.env.local: NEXT_PUBLIC_API_URL=https://api.syntaxwp.test
+# apps/api/.env:             DASHBOARD_ORIGIN=https://app.syntaxwp.test
+```
+
+Then, with `pnpm dev` already running and port 443 free (see above), start the proxy in its own
+terminal:
+
+```bash
+pnpm dev:https
+```
+
+First run pops a macOS Keychain dialog — `devcert` is generating and trusting a local CA so the
+browser sees a real, trusted cert (no click-through warning). Accept it once; it's cached and
+trusted for every future run. The proxy then binds `:443` (root required, hence `sudo` inside the
+script) and forwards by hostname:
+
+- `https://app.syntaxwp.test` → `127.0.0.1:3000` (dashboard, including HMR/WebSocket upgrades)
+- `https://api.syntaxwp.test` → `127.0.0.1:4000` (api)
+
+This is purely a local convenience layer — plain `http://localhost:3000`/`:4000` keep working
+unchanged whether or not the proxy is running.
+
 ---
 
 ## 7. Running the Cloudflare Worker Probes Locally *(not built yet — Task B3)*
@@ -373,6 +419,23 @@ pnpm test
   the conflicting project's Docker containers.
 - **Playwright/Wrangler-specific issues** — not applicable yet; both land with Tasks B5 and B3
   respectively (see §7/§8).
+- **`pnpm dev:https` fails with `EACCES: permission denied :443`** — the script needs root to bind a
+  privileged port; run it via `pnpm dev:https` as-is (it already shells out to `sudo`), don't run
+  `node scripts/https-proxy.mjs` directly.
+- **`pnpm dev:https` fails with `EADDRINUSE: address already in use :443`** — something else already
+  owns port 443, most likely Valet or WP Engine's **Local** app running for other WordPress sites on
+  this machine (`lsof -iTCP:443 -sTCP:LISTEN` to confirm). Quit/stop whichever one it is (Local: quit
+  the whole app, no partial-stop CLI; Valet: `valet stop`) and retry. See §6.1.
+- **`pnpm dev:https` never shows the Keychain trust dialog / browser still shows untrusted cert** —
+  delete `~/Library/Application Support/devcert` and rerun; a stale or partially-created CA from an
+  earlier interrupted run is the usual cause.
+- **`https://api.syntaxwp.test` resolves but `https://app.syntaxwp.test` doesn't (or vice versa)** —
+  almost always a malformed `/etc/hosts`: check `grep -n -A1 'app.syntaxwp.test\|api.syntaxwp.test'
+  /etc/hosts` — if one entry got appended onto the end of an existing line (no leading newline, e.g.
+  right after a `## Local - End ##` comment from Valet/Local's own hosts management), that whole line
+  becomes a comment and the hostname never registers. Fix by splitting it onto its own line.
+- **`https://app.syntaxwp.test` doesn't resolve at all** — confirm the `/etc/hosts` entries from §6.1
+  are present (`grep syntaxwp /etc/hosts`) and that `pnpm dev:https` is actually running.
 
 ---
 
@@ -390,6 +453,8 @@ syntaxwp/
 │   └── plugin/            # (not built yet — Task A6) WordPress plugin (PHP)
 ├── docker-compose.yml     # MinIO (local R2 substitute)
 ├── supabase/              # Supabase CLI config (local Postgres/Auth/Realtime)
+├── scripts/
+│   └── https-proxy.mjs   # optional local HTTPS proxy — §6.1
 ├── pnpm-workspace.yaml
 ├── BACKEND-DEVELOPMENT-PLAN.md
 └── LOCAL-DEVELOPMENT-SETUP.md
