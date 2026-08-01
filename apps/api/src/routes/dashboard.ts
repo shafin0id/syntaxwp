@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { z } from "zod";
 import { db } from "@syntaxwp/db";
 import { incidents, auditLog, sites, pluginInventory, vulnerabilityAdvisories, performanceSnapshots, snapshots as snapshotsTable, securityActionsLog } from "@syntaxwp/db";
 import { eq, desc, and, gt, inArray, count, lte, sql } from "drizzle-orm";
@@ -748,9 +749,43 @@ export const dashboardRoute = new Hono()
         allowedActions: site.allowedActions || [],
         notificationEmail: site.notificationEmail,
         slackWebhookUrl: site.slackWebhookUrl,
+        killSwitchActive: site.killSwitchActive,
         siteSecret,
       });
     } catch (err: any) {
+      return c.json({ error: err.message }, 500);
+    }
+  })
+
+  // Remote counterpart to the plugin's local KillSwitch (safety/KillSwitch.php)
+  // — the plugin picks this up on its next heartbeat (§4.3), the one channel
+  // both execution paths already poll every 60s.
+  .post("/api/sites/:id/kill-switch", async (c) => {
+    const { id } = c.req.param();
+    try {
+      const [site] = await db.select().from(sites).where(eq(sites.id, id)).limit(1);
+      if (!site) {
+        return c.json({ error: "Site not found" }, 404);
+      }
+
+      const parsed = z.object({ active: z.boolean() }).safeParse(await c.req.json().catch(() => ({})));
+      if (!parsed.success) {
+        return c.json({ error: parsed.error.flatten().fieldErrors }, 400);
+      }
+
+      await db.update(sites).set({ killSwitchActive: parsed.data.active }).where(eq(sites.id, id));
+      await db.insert(auditLog).values({
+        siteId: id,
+        eventType: parsed.data.active ? "kill_switch_activated" : "kill_switch_deactivated",
+        actor: "user",
+        summary: parsed.data.active
+          ? "User remotely disabled the plugin's execution capability."
+          : "User re-enabled the plugin's execution capability.",
+      });
+
+      return c.json({ success: true, killSwitchActive: parsed.data.active });
+    } catch (err: any) {
+      console.error(`[API] Kill switch toggle failed for site ${id}: ${err.message}`);
       return c.json({ error: err.message }, 500);
     }
   })
@@ -1205,7 +1240,18 @@ export const dashboardRoute = new Hono()
         .orderBy(desc(incidents.resolvedAt));
 
       const monthName = startOfMonth.toLocaleString("en-US", { month: "long" });
-      const csvEscape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+      // Formula-injection guard (CWE-1236): a cell starting with =/+/-/@ can
+      // execute as a formula when opened in Excel/Sheets. rootCause/plainEnglish
+      // ultimately trace back to plugin names and error text — untrusted
+      // input by this system's own threat model (see router.ts's prompt
+      // injection defense) — so neutralize it here too, not just in prompts.
+      const csvEscape = (value: unknown) => {
+        let str = String(value ?? "");
+        if (/^[=+\-@\t\r]/.test(str)) {
+          str = `'${str}`;
+        }
+        return `"${str.replace(/"/g, '""')}"`;
+      };
 
       const rows: string[][] = [
         ["Report", `${monthName} ${year} - Monthly health report`],

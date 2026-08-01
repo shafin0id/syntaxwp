@@ -139,6 +139,10 @@ export default function SettingsPage() {
   const [allowedActions, setAllowedActions] = useState<string[]>([])
   const [customExpanded, setCustomExpanded] = useState(false)
 
+  // Emergency kill switch
+  const [killSwitchActive, setKillSwitchActive] = useState(false)
+  const [killSwitchSaving, setKillSwitchSaving] = useState(false)
+
   // Notifications & team
   const [notificationEmail, setNotificationEmail] = useState("")
   const [slackWebhook, setSlackWebhook] = useState("")
@@ -172,6 +176,7 @@ export default function SettingsPage() {
         setWpVersion(data.wpVersion || "Unknown")
         setNotificationEmail(data.notificationEmail || "")
         setSlackWebhook(data.slackWebhookUrl || "")
+        setKillSwitchActive(!!data.killSwitchActive)
 
         const tier = data.permissionTier || "some_access"
         setPermTier(tier === "some_access" ? "custom" : tier)
@@ -349,6 +354,34 @@ export default function SettingsPage() {
     }
   }
 
+  const toggleKillSwitch = async () => {
+    const nextActive = !killSwitchActive
+    if (nextActive) {
+      const ok = confirm(
+        "This immediately stops the plugin from executing ANY action on this site — including in-progress fixes. Use only in an emergency. Continue?"
+      )
+      if (!ok) return
+    }
+
+    setKillSwitchSaving(true)
+    const prev = killSwitchActive
+    setKillSwitchActive(nextActive)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/sites/${siteId}/kill-switch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: nextActive }),
+      })
+      if (!res.ok) throw new Error(`Kill switch update failed (${res.status})`)
+    } catch (err) {
+      console.error("Failed to toggle kill switch:", err)
+      setKillSwitchActive(prev)
+      alert("Couldn't update the kill switch — please try again.")
+    } finally {
+      setKillSwitchSaving(false)
+    }
+  }
+
   const testSlackNotification = () => {
     alert("Test notification webhook triggered. Payload: 'SyntaxWP checkout check verified successfully.' sent to Slack.")
   }
@@ -489,6 +522,27 @@ export default function SettingsPage() {
                       {saveError && (
                         <span className="text-xs font-semibold text-danger">{saveError}</span>
                       )}
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Emergency kill switch */}
+                <Card className="border-danger/30 bg-danger-soft/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
+                    <div>
+                      <h4 className="font-semibold text-sm text-danger">Emergency Kill Switch</h4>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed text-pretty">
+                        Immediately stops the plugin from executing any action on this site, including
+                        in-progress fixes. Monitoring and detection keep running — only execution stops.
+                      </p>
+                      {killSwitchActive && (
+                        <span className="inline-flex items-center gap-1 mt-2 rounded-full bg-danger px-2 py-0.5 text-2xs font-semibold text-white">
+                          Active — execution is currently blocked
+                        </span>
+                      )}
+                    </div>
+                    <div className="shrink-0">
+                      <Toggle checked={killSwitchActive} disabled={killSwitchSaving} onChange={toggleKillSwitch} />
                     </div>
                   </div>
                 </Card>
