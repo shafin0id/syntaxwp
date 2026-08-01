@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Separate from phpunit.xml.dist's bootstrap deliberately — see
+  tests/integration-bootstrap.php's own docblock for why WP_Mock and real
+  HTTP/DB integration testing can't share one PHPUnit bootstrap.
+
+  Not part of `composer test` / CI: these tests need a live local Postgres
+  and a live `pnpm dev` API instance, and self-skip (not fail) when either
+  is unreachable. Run explicitly via `composer test:integration`.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/integration-bootstrap.php"
+         colors="true">
+  <testsuites>
+    <testsuite name="integration">
+      <directory>tests/Integration</directory>
+    </testsuite>
+  </testsuites>
+</phpunit>

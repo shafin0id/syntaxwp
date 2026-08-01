@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { encryptSiteSecret, generateSiteSecret, loadSiteSecretEncryptionKey } from "@syntaxwp/shared";
 import { db, sql } from "./client.js";
 import { orgs, sites } from "./schema/index.js";
 
@@ -7,12 +7,17 @@ import { orgs, sites } from "./schema/index.js";
 // then re-seed) — it does not check for an existing dev org first, since
 // local data is disposable by design (see LOCAL-DEVELOPMENT-SETUP.md §4).
 async function main() {
+  // Reads process.env directly (not a Zod schema, unlike apps/api) since
+  // this script runs standalone outside apps/api — loadSiteSecretEncryptionKey
+  // itself is what fails fast here if the var is missing/wrong-length (A2.4).
+  const encryptionKey = loadSiteSecretEncryptionKey(process.env.SITE_SECRET_ENCRYPTION_KEY);
+
   const [org] = await db
     .insert(orgs)
     .values({ name: "Dev Org", plan: "starter" })
     .returning();
 
-  const siteSecret = randomBytes(32).toString("hex");
+  const siteSecret = generateSiteSecret();
 
   const [site] = await db
     .insert(sites)
@@ -20,7 +25,7 @@ async function main() {
       orgId: org.id,
       url: "http://localhost:8080",
       executionPath: "legacy_outbound",
-      siteSecret,
+      siteSecretCiphertext: encryptSiteSecret(siteSecret, encryptionKey),
     })
     .returning();
 

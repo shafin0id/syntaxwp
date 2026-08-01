@@ -36,5 +36,71 @@ jobs:
         run: pnpm lint
         continue-on-error: true
 
+  # A8.2. Every A2-A8 vitest suite is an integration test against a real
+  # local stack, not mocks (LOCAL-DEVELOPMENT-SETUP.md §4/§5) — several
+  # (sites.test.ts, work-orders.test.ts, audit-trail.test.ts, ...) sign in a
+  # real Supabase Auth user via supabaseAdmin.auth.admin.createUser, which a
+  # bare `postgres:` service container has no way to serve (no GoTrue, no
+  # auth schema). `supabase start` gives this job the exact same Postgres +
+  # Auth + Realtime stack a developer runs locally instead, so CI exercises
+  # the real wiring, not a thinner CI-only substitute that could pass while
+  # the real stack fails.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase (Postgres + Auth + Realtime)
+        run: supabase start
+
+      - name: Start MinIO (R2 substitute, LOCAL-DEVELOPMENT-SETUP.md §5)
+        run: docker compose up -d minio
+
+      - name: Wait for MinIO and create the dev bucket
+        run: |
+          timeout 30 bash -c 'until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done'
+          AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin AWS_DEFAULT_REGION=us-east-1 \
+            aws --endpoint-url http://localhost:9000 s3 mb s3://syntaxwp-artifacts-dev
+
+      - name: Write apps/api/.env and packages/db/.env from `supabase status`
+        run: |
+          eval "$(supabase status -o env)"
+          cat > apps/api/.env <<EOF
+          DATABASE_URL=${DB_URL}
+          PORT=4000
+          SUPABASE_URL=${API_URL}
+          SUPABASE_ANON_KEY=${ANON_KEY}
+          SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
+          R2_ACCESS_KEY_ID=minioadmin
+          R2_SECRET_ACCESS_KEY=minioadmin
+          R2_BUCKET_NAME=syntaxwp-artifacts-dev
+          R2_ENDPOINT=http://localhost:9000
+          CF_WORKER_SECRET=ci-secret-not-used-outside-ci
+          SITE_SECRET_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")
+          EOF
+          cat > packages/db/.env <<EOF
+          DATABASE_URL=${DB_URL}
+          SITE_SECRET_ENCRYPTION_KEY=$(grep SITE_SECRET_ENCRYPTION_KEY apps/api/.env | cut -d= -f2)
+          EOF
+
+      - name: Apply migrations
+        run: pnpm --filter @syntaxwp/db migrate
+
+      - name: Test (packages/shared, packages/db, apps/api)
+        run: pnpm test
+
   # Deploy is intentionally out of scope — see BACKEND-DEVELOPMENT-PLAN.md
   # "Integration & Hardening" / Non-Goals.

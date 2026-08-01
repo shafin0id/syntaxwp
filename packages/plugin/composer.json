@@ -1,0 +1,42 @@
+{
+  "name": "syntaxwp/plugin",
+  "description": "SyntaxWP WordPress plugin — heartbeat/event reporting, signed work-order execution, and safety controls (Task A6/A7).",
+  "type": "wordpress-plugin",
+  "license": "proprietary",
+  "authors": [
+    {
+      "name": "Tanmay Kirtania",
+      "email": "jktanmay@gmail.com"
+    }
+  ],
+  "require": {
+    "php": ">=7.4"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6",
+    "mockery/mockery": "^1.6",
+    "10up/wp_mock": "^1.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "SyntaxWP\\Plugin\\Core\\": "core/",
+      "SyntaxWP\\Plugin\\Safety\\": "safety/",
+      "SyntaxWP\\Plugin\\Wp7\\": "wp7/",
+      "SyntaxWP\\Plugin\\MuWatchdog\\": "mu-watchdog/",
+      "SyntaxWP\\Plugin\\Admin\\": "admin/"
+    },
+    "exclude-from-classmap": ["tests/"]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "SyntaxWP\\Plugin\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "test:integration": "phpunit -c phpunit-integration.xml.dist"
+  },
+  "config": {
+    "allow-plugins": false
+  }
+}

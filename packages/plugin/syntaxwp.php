@@ -26,6 +26,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 // needed on top of it.
 require_once __DIR__ . '/vendor/autoload.php';
 
+use SyntaxWP\Plugin\Admin\AdminMenu;
+use SyntaxWP\Plugin\Admin\SettingsController;
 use SyntaxWP\Plugin\Core\CapabilityRouter;
 use SyntaxWP\Plugin\Core\ErrorCapture;
 use SyntaxWP\Plugin\Core\EventQueue;
@@ -98,7 +100,12 @@ class SyntaxWP {
     public function define_constants() {
         define( 'SYNTAXWP_PLUGIN_FILE', __FILE__ );
         define( 'SYNTAXWP_PLUGIN_DIR', __DIR__ );
+        define( 'SYNTAXWP_PLUGIN_URL', untrailingslashit( plugins_url( '', __FILE__ ) ) );
         define( 'SYNTAXWP_PLUGIN_VERSION', '0.1.0' );
+
+        // Where the wp-admin marketing CTA points when no site is
+        // connected yet — a single override point, not hardcoded in JS.
+        define( 'SYNTAXWP_MARKETING_URL', 'https://syntaxwp.com' );
     }
 
     /**
@@ -124,6 +131,18 @@ class SyntaxWP {
             ( new AbilitiesRegistrar() )->registerHooks();
             ( new MCPEndpoints() )->registerHooks();
         }
+
+        // AdminMenu's hooks (admin_menu, admin_enqueue_scripts) only ever
+        // fire on wp-admin page loads, so gating its construction on
+        // is_admin() is a legitimate no-op removal for every other request.
+        // SettingsController is deliberately NOT gated the same way: its
+        // REST routes are called from a separate /wp-json/... request that
+        // is_admin() reports as false (only literal wp-admin/*.php loads
+        // count), so gating it here would silently 404 every settings save.
+        if ( is_admin() ) {
+            ( new AdminMenu() )->registerHooks();
+        }
+        ( new SettingsController() )->registerHooks();
     }
 }
 
@@ -150,95 +169,4 @@ function syntaxwp_deactivate() {
     if ( file_exists( $watchdog_dst ) ) {
         unlink( $watchdog_dst );
     }
-}
-
-add_action('admin_menu', 'syntaxwp_admin_menu');
-add_action('admin_post_syntaxwp_save_settings', 'syntaxwp_save_settings');
-
-function syntaxwp_admin_menu() {
-    add_menu_page(
-        'SyntaxWP Settings',
-        'SyntaxWP',
-        'manage_options',
-        'syntaxwp',
-        'syntaxwp_admin_page',
-        'dashicons-shield-alt',
-        80
-    );
-}
-
-function syntaxwp_save_settings() {
-    if ( ! current_user_can('manage_options') ) {
-        wp_die('Unauthorized');
-    }
-    check_admin_referer('syntaxwp_settings_nonce');
-
-    $api_base = trim(sanitize_text_field($_POST['syntaxwp_api_base_url'] ?? ''));
-    $site_id  = trim(sanitize_text_field($_POST['syntaxwp_site_id'] ?? ''));
-    $secret   = trim(sanitize_text_field($_POST['syntaxwp_site_secret'] ?? ''));
-
-    if ($api_base) update_option('syntaxwp_api_base_url', rtrim($api_base, '/'));
-    if ($site_id)  update_option('syntaxwp_site_id', $site_id);
-    // Only update secret if provided (non-empty) to avoid overwriting with blank
-    if ($secret)   update_option('syntaxwp_site_secret', $secret);
-
-    wp_redirect(admin_url('admin.php?page=syntaxwp&saved=1'));
-    exit;
-}
-
-function syntaxwp_admin_page() {
-    if ( ! current_user_can('manage_options') ) {
-        wp_die('Unauthorized');
-    }
-
-    $site_id  = get_option('syntaxwp_site_id', '');
-    $secret   = get_option('syntaxwp_site_secret', '');
-    $api_base = get_option('syntaxwp_api_base_url', 'https://api.syntaxwp.com');
-    $connected = !empty($site_id) && !empty($secret);
-    $saved     = isset($_GET['saved']);
-
-    echo '<div class="wrap">';
-    echo '<h1>SyntaxWP</h1>';
-
-    if ($saved) {
-        echo '<div class="notice notice-success is-dismissible"><p>Settings saved.</p></div>';
-    }
-
-    // Connection status banner
-    if ($connected) {
-        echo '<div class="notice notice-success inline" style="margin-left:0;max-width:600px;padding:15px;border-left-color:#46b450;background:#fff;">';
-        echo '<h3 style="margin-top:0;color:#46b450;">&#9679; Connected to Dashboard</h3>';
-        echo '<p><strong>Site ID:</strong> <code>' . esc_html($site_id) . '</code></p>';
-        echo '<p><strong>API Endpoint:</strong> <code>' . esc_html($api_base) . '</code></p>';
-        echo '</div>';
-    } else {
-        echo '<div class="notice notice-warning inline" style="margin-left:0;max-width:600px;padding:15px;border-left-color:#ffb900;background:#fff;">';
-        echo '<h3 style="margin-top:0;color:#ffb900;">&#9679; Not Connected</h3>';
-        echo '<p>Fill in the settings below to connect this site to your SyntaxWP dashboard.</p>';
-        echo '</div>';
-    }
-
-    echo '<br/>';
-
-    // Settings form
-    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="max-width:600px;">';
-    echo '<input type="hidden" name="action" value="syntaxwp_save_settings">';
-    wp_nonce_field('syntaxwp_settings_nonce');
-
-    echo '<table class="form-table" role="presentation">';
-    echo '<tr><th scope="row"><label for="syntaxwp_api_base_url">API Base URL</label></th>';
-    echo '<td><input type="url" id="syntaxwp_api_base_url" name="syntaxwp_api_base_url" value="' . esc_attr($api_base) . '" class="regular-text" placeholder="http://localhost:4000"></td></tr>';
-
-    echo '<tr><th scope="row"><label for="syntaxwp_site_id">Site ID</label></th>';
-    echo '<td><input type="text" id="syntaxwp_site_id" name="syntaxwp_site_id" value="' . esc_attr($site_id) . '" class="regular-text" placeholder="UUID from dashboard"></td></tr>';
-
-    echo '<tr><th scope="row"><label for="syntaxwp_site_secret">Site Secret</label></th>';
-    echo '<td><input type="password" id="syntaxwp_site_secret" name="syntaxwp_site_secret" value="" class="regular-text" placeholder="Leave blank to keep existing secret">';
-    if ($secret) echo '<p class="description">&#10003; Secret is set. Enter a new value only to change it.</p>';
-    echo '</td></tr>';
-    echo '</table>';
-
-    submit_button('Save Settings');
-    echo '</form>';
-    echo '</div>';
 }

@@ -1,4 +1,9 @@
 node_modules
+.DS_Store
+
+# packages/plugin (Composer, not pnpm) — same rationale as node_modules
+vendor/
+.phpunit.result.cache
 
 # env files — never commit secrets, only the .example templates
 .env
@@ -9,5 +14,8 @@ node_modules
 dist/
 .next/
 *.tsbuildinfo
+
+# packages/plugin's @wordpress/scripts output (compiled from src/)
+packages/plugin/build/
 
 # supabase local runtime (its own .gitignore in supabase/ covers .branches/.temp)

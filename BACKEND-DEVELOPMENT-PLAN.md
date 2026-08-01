@@ -167,71 +167,259 @@ same pattern already used for B6.2's mocked ephemeral container below.
 ahead of A3/A4) because Track B's B2 depends on it for site-authenticated ingestion — see the
 "Revised after review" note above.
 
-### Task A2 — Data Layer & Multi-Tenancy
-- [ ] A2.1 CRUD repositories for `orgs`/`sites` (§14.1).
-- [ ] A2.2 Row-level isolation: every query scoped by `site_id`/`org_id` (§14.2).
-- [ ] A2.3 Postgres RLS policy making `audit_log` append-only (no UPDATE/DELETE, enforced at the DB
+### Task A2 — Data Layer & Multi-Tenancy ✅ Done
+- [x] A2.1 CRUD repositories for `orgs`/`sites` (§14.1).
+- [x] A2.2 Row-level isolation: every query scoped by `site_id`/`org_id` (§14.2).
+- [x] A2.3 Postgres RLS policy making `audit_log` append-only (no UPDATE/DELETE, enforced at the DB
   level, not just app level) (§14.2).
-- [ ] A2.4 Site secret generation + encrypted-at-rest storage (§15.3).
+- [x] A2.4 Site secret generation + encrypted-at-rest storage (§15.3).
 
-### Task A5a — Hono API Surface: Core & Auth *(do this right after A2 — Track B's B2 depends on it)*
-- [ ] A5a.1 Dual auth model: plugin-origin requests authenticated by site HMAC (replaces C1 stub),
+**Definition of done — verified 2026-07-09:** `packages/db/src/repositories/{orgs,sites,audit-log}.ts`
+scope every query by `orgId`/`siteId` except the two lookups that structurally can't (org creation;
+`getSiteById` for site-HMAC auth resolution, documented inline). `audit_log` append-only is enforced by
+a `BEFORE UPDATE OR DELETE` trigger (migration `0001_audit_log_append_only.sql`) — RLS alone was
+verified insufficient since local/deployed `DATABASE_URL` connects as the Postgres superuser, which
+bypasses RLS unconditionally; RLS+FORCE is layered on as defense-in-depth for a future non-superuser
+role. `audit-log.test.ts` proves rejection via both raw SQL and the Drizzle query builder — 5/5 passing
+against local Supabase Postgres. `sites.site_secret_ciphertext` stores an AES-256-GCM envelope
+(`packages/shared/src/site-secret.ts`), keyed by `SITE_SECRET_ENCRYPTION_KEY`; `site-secret.test.ts`
+covers round-trip, IV uniqueness, wrong-key rejection, and key-loading validation — 6/6 passing. Full
+local cycle verified: `supabase start` → `pnpm --filter @syntaxwp/db migrate` → `seed` → `test`, all
+green. Deferred (flagged, not blocking): introducing a dedicated non-superuser `syntaxwp_app` DB role
+for true least-privilege RLS enforcement — pre-production follow-up, see A2.3's migration comment.
+
+### Task A5a — Hono API Surface: Core & Auth *(do this right after A2 — Track B's B2 depends on it)* ✅ Done
+- [x] A5a.1 Dual auth model: plugin-origin requests authenticated by site HMAC (replaces C1 stub),
   dashboard-origin requests authenticated by user session.
-- [ ] A5a.2 Core endpoints: `POST /api/sites`, `GET /api/sites/:id`, `POST /api/sites/:id/heartbeat`,
+- [x] A5a.2 Core endpoints: `POST /api/sites`, `GET /api/sites/:id`, `POST /api/sites/:id/heartbeat`,
   `POST /api/sites/:id/events`.
-- [ ] A5a.3 Rate limiting middleware for the heartbeat/events/probe endpoint classes (§15.2;
+- [x] A5a.3 Rate limiting middleware for the heartbeat/events/probe endpoint classes (§15.2;
   work_claims class added in A5b).
 
-### Task A3 — HMAC Work Order Engine & Policy Engine
-- [ ] A3.1 `WorkOrder` issuance: nonce, `issued_at`/`expires_at` (5 min window), HMAC-SHA256 signing
+**Definition of done — verified 2026-07-09:** `verifySiteAuth` (`apps/api/src/auth/site-auth.ts`)
+validates `{site_id, timestamp, nonce, hmac}` against a Postgres-backed nonce ledger
+(`site_auth_nonces`, pruned every 5 min by a Graphile Worker job) — no C1 stub ever existed to swap,
+since Track B hasn't started building in parallel yet. `canonicalizeForSigning`/`signPayload`/
+`verifySignature` live in `packages/shared/src/hmac.ts`, built here (ahead of A3 in the plan doc's own
+sequence) since A5a needed them first; A3.1 will reuse rather than duplicate. `POST/GET /api/sites`
+(session-authed) resolve org via a new `app_metadata.org_id` Supabase Auth claim — flagged as an
+interim decision, §14.1 has no org-membership table. `POST /api/sites/:id/{heartbeat,events}`
+(site-HMAC-authed) update `sites`/`plugin_inventory` (new unique constraint + upsert) and write
+`audit_log` rows respectively. Rate limiting (`apps/api/src/middleware/rate-limit.ts`) is an in-memory
+per-process fixed-window counter — no Redis in this stack; `probe` class defined for Track B, wiring
+`work_claims` deferred to A5b.3. 27 tests passing across `hmac.test.ts`, `site-secret.test.ts` (from
+A2.4), `site-auth.test.ts`, `sites.test.ts`, `sites-heartbeat.test.ts`, `rate-limit.test.ts`, all
+against local Supabase Postgres.
+
+### Task A3 — HMAC Work Order Engine & Policy Engine ✅ Done
+- [x] A3.1 `WorkOrder` issuance: nonce, `issued_at`/`expires_at` (5 min window), HMAC-SHA256 signing
   (§8.2).
-- [ ] A3.2 Graphile Worker job to expire/garbage-collect stale unclaimed work orders.
-- [ ] A3.3 Policy engine: `policyDecision()`, `ACTION_RISK_MAP`, allow/ask/block logic (§9.3),
+- [x] A3.2 Graphile Worker job to expire/garbage-collect stale unclaimed work orders.
+- [x] A3.3 Policy engine: `policyDecision()`, `ACTION_RISK_MAP`, allow/ask/block logic (§9.3),
   replaces the C2 stub. Unit tests covering every `(action, tier)` combination in the map, including
   the permanently blocked `run_arbitrary_command`.
-- [ ] A3.4 API endpoints for user approval flow (approve/decline a pending "ask" work order).
+- [x] A3.4 API endpoints for user approval flow (approve/decline a pending "ask" work order).
 
-### Task A4 — Dead Man's Switch & Snapshot/Revert
-- [ ] A4.1 `armDeadMansSwitch` / `disarmDeadMansSwitch` as Graphile Worker jobs (§9.2).
-- [ ] A4.2 Pre-action micro-snapshot capture (active plugins, options checksum, file checksums) → R2
+**Definition of done — verified 2026-07-09:** `canonicalizeForSigning`/`signPayload`/`verifySignature`
+(`packages/shared/src/hmac.ts`, built early in A5a.1) underpin `signWorkOrder`/`verifyWorkOrderSignature`
+(`work-order-signing.ts`), validated against 3 cross-language golden fixture vectors that Task A6.2's
+PHPUnit suite must also reproduce. `id` doubles as the replay nonce — no separate column. `issueWorkOrder`
+(`packages/db`) computes the HMAC and persists `dead_mans_switch_ms` (new column, migration 0005).
+`work_order_expiry_sweep` runs every minute via Graphile Worker cron, only ever moving
+`pending`→`expired`. `policyDecision()` ported verbatim from §9.3 (including the `full_auto`/
+`some_access` branches being identical in the source spec — flagged, not "fixed"), with exhaustive
+42-case test coverage. `issueWorkOrderWithPolicy()` is the actual gate: `block` creates no row, `ask`
+issues as new status `awaiting_approval` (not yet claimable), `allow` issues as `pending`.
+`POST /api/work-orders/:id/{approve,decline}` (session-authed, org-scoped via `getWorkOrderForOrg`)
+atomically transition `awaiting_approval`→`pending`/`declined`, write an `audit_log` row each, and 409
+on an already-actioned order. 62 tests passing across `packages/shared` and `packages/db`, plus 24 in
+`apps/api` covering the full route/auth/audit chain against local Supabase Postgres.
+
+### Task A4 — Dead Man's Switch & Snapshot/Revert ✅ Done
+- [x] A4.1 `armDeadMansSwitch` / `disarmDeadMansSwitch` as Graphile Worker jobs (§9.2).
+- [x] A4.2 Pre-action micro-snapshot capture (active plugins, options checksum, file checksums) → R2
   (MinIO locally) + `snapshots` table row.
-- [ ] A4.3 Revert executor: restore from snapshot, confirm restored via health probe.
-- [ ] A4.4 30-day snapshot retention/cleanup job (§14.2).
+- [x] A4.3 Revert executor: restore from snapshot, confirm restored via health probe.
+- [x] A4.4 30-day snapshot retention/cleanup job (§14.2).
 
-### Task A5b — Hono API Surface: Work Orders & Streaming *(after A3 — needs the WorkOrder engine)*
-- [ ] A5b.1 Work-order claim endpoint.
-- [ ] A5b.2 `GET /api/sites/:id/stream` (SSE, §10.3).
-- [ ] A5b.3 Rate limiting for the work_claims endpoint class (§15.2).
+**Definition of done — verified 2026-07-09:** Built in dependency order (A4.2 → A4.3 → A4.1 → A4.4)
+rather than numeric order, since A4.1's fire task calls A4.3's revert executor directly. `captureSnapshot`
+(`apps/api/src/snapshots/capture.ts`) records `active_plugins` from the existing `plugin_inventory` table
+(kept fresh by every heartbeat); `options_checksum`/`file_checksums` stay `null` — there's no channel yet
+to read WP options/files off a site (needs Task A7), and a fabricated checksum would be worse than none.
+`executeRevert` (`apps/api/src/snapshots/revert.ts`) always marks the work order `reverted` and writes a
+`revert_escalated_to_human` audit_log entry (§8.1: a human should look regardless of outcome); it also
+queues an automatic inverse work order — bypassing the policy engine's "ask" gate on purpose — for the
+two actions with a clean mechanical inverse today (`deactivate_plugin`/`activate_plugin`); every other
+action logs "no automatic inverse exists, manual revert required" rather than guessing. `probeSiteHealth`
+does a real HTTP GET against the site's public URL for reachability evidence — not §9.1's full
+Playwright/visual-diff pipeline (Track B). `armDeadMansSwitch`/`disarmDeadMansSwitch`
+(`apps/api/src/worker/tasks/dead-mans-switch.ts`) schedule/cancel a Graphile Worker job keyed
+`dms_{workOrderId}` via a process-lifetime `WorkerUtils` singleton; disarm calls
+`graphile_worker.remove_job` directly via raw SQL since it isn't exposed on `WorkerUtils`' JS interface.
+`deadMansSwitchFire` re-checks `status === "executed"` before acting (defensive against at-least-once
+job delivery — the real concurrency guard is `markWorkOrderReverted`'s conditioned `UPDATE`), writes its
+own `dead_mans_switch_fired` alert, then delegates to `executeRevert`. `snapshotRetentionSweep`
+(`apps/api/src/worker/tasks/snapshot-retention.ts`, daily cron) deletes DB rows past 30 days first (so
+the returned rows still carry `storageKey`), then deletes each R2/MinIO object — added
+`ObjectStorageClient.deleteObject` for this, the first caller that removes rather than reads/writes an
+object. Both are tested against real local Postgres and a real local MinIO instance (no mocks). 12 new
+tests (`snapshots.test.ts`, `capture.test.ts`, `revert.test.ts`, `dead-mans-switch.test.ts`,
+`snapshot-retention.test.ts`), bringing the running total to 81 across `packages/shared`+`packages/db`
+and 39 in `apps/api`.
 
-### Task A6 — WordPress Plugin: Core & Safety (`packages/plugin`)
-- [ ] A6.1 `core/`: `Heartbeat.php`, `EventQueue.php`, `ErrorCapture.php`, `WorkOrderPoller.php`,
+### Task A5b — Hono API Surface: Work Orders & Streaming *(after A3 — needs the WorkOrder engine)* ✅ Done
+- [x] A5b.1 Work-order claim endpoint.
+- [x] A5b.2 `GET /api/sites/:id/stream` (SSE, §10.3).
+- [x] A5b.3 Rate limiting for the work_claims endpoint class (§15.2).
+
+**Definition of done — verified 2026-07-09:** `POST /api/sites/:id/work-orders/claim`
+(`apps/api/src/routes/sites.ts`) discovers-and-claims in one atomic statement
+(`claimNextPendingWorkOrder`, `packages/db`) rather than a separate list-then-claim-by-id pair — the
+legacy plugin path is outbound-only (§4.1) and can't be handed a work order's id ahead of a poll, so
+there's nothing to discover separately; confirmed via user sign-off between the two designs.
+`workOrderToWirePayload` reconstructs the exact signed payload from a persisted row so the claiming
+plugin can verify its own copy of the HMAC. `GET /api/sites/:id/stream` (session-authed, org-scoped)
+is fed by one `AFTER INSERT` trigger on `audit_log` (migration `0006_audit_log_notify_trigger.sql`)
+`pg_notify`-ing every row, and one process-local `EventEmitter` (`apps/api/src/realtime/
+site-events.ts`) behind a single shared `LISTEN` connection — covers every event type for free since
+A8.1 already guarantees every mutating action writes an audit_log row, and scales horizontally since
+Postgres broadcasts NOTIFYs to every listening connection regardless of instance. The `work_claims`
+rate-limit class (defined since A5a.3, unused until now) is wired directly into the claim route, same
+as A5a.3 wired `heartbeat`/`events` inline with those routes rather than as a separate pass. 16 new
+tests (4 repo — `claimNextPendingWorkOrder`/`workOrderToWirePayload`, 6 claim-route incl. rate-limit
+enforcement and cross-site isolation, 3 LISTEN/NOTIFY round-trip, 3 SSE-route) against real local
+Postgres — no mocked trigger, emitter, or signature anywhere in this set. Running totals: 85 across
+`packages/shared`+`packages/db` (62+23), 51 in `apps/api`.
+
+### Task A6 — WordPress Plugin: Core & Safety (`packages/plugin`) ✅ Done
+- [x] A6.1 `core/`: `Heartbeat.php`, `EventQueue.php`, `ErrorCapture.php`, `WorkOrderPoller.php`,
   `CapabilityRouter.php` (§4.2).
-- [ ] A6.2 `safety/`: `WorkOrderValidator.php` (HMAC + expiry + nonce + whitelist checks, §15.1),
+- [x] A6.2 `safety/`: `WorkOrderValidator.php` (HMAC + expiry + nonce + whitelist checks, §15.1),
   `ActionWhitelist.php` (12 permitted actions, §8.2/§9.3), `SafeMode.php`, `KillSwitch.php`.
-- [ ] A6.3 `mu-watchdog/SyntaxWPWatchdog.php` (MU plugin, last-resort heartbeat/restart).
+- [x] A6.3 `mu-watchdog/SyntaxWPWatchdog.php` (MU plugin, last-resort heartbeat/restart).
   Plugin test harness (PHPUnit or `wp-env`) with mocked HTTP calls to a local `apps/api` instance —
   no live WordPress site required for this.
-- [ ] A6.4 Resource budget enforcement checks (§4.4): server time added, memory footprint, zero
+- [x] A6.4 Resource budget enforcement checks (§4.4): server time added, memory footprint, zero
   autoload DB writes, network calls only on `shutdown`/WP-Cron.
 
-### Task A7 — WordPress Plugin: Dual Execution Path
-- [ ] A7.1 `wp7/`: `AbilitiesRegistrar.php`, `MCPEndpoints.php` (localhost-only), `ActionExecutor.php`
+**Definition of done — verified 2026-07-09:** WP_Mock + PHPUnit + Mockery harness (`composer.json`
+pinned to PHPUnit ^9.6 — 10up/wp_mock 1.1.1 hard-requires it, no released version supports PHPUnit 10
+yet), zero live WordPress install anywhere in the suite. `core/Hmac.php` is a byte-for-byte PHP port of
+`packages/shared/src/hmac.ts`'s canonicalization, validated against the exact same golden fixture
+vectors both suites consume (a relative path to the one shared file, not a copy). `CapabilityRouter`
+routes to `wp7_native` only when both WP≥7 and the Abilities API are actually available, defaulting to
+the legacy outbound-polling path otherwise. `Heartbeat`/`EventQueue`/`ErrorCapture`/`WorkOrderPoller`/
+the mu-plugin watchdog all fire exclusively on the `shutdown` hook (never the request-critical path);
+`EventQueue` persists its pending queue in a non-autoloaded option specifically so a failed send
+survives to retry on the next request, not just the same one. `WorkOrderPoller` executes only the 4
+whitelisted actions with a genuinely simple, safe, single-mechanism implementation right now
+(`flush_cache`, `clear_transients`, `activate_plugin`, `deactivate_plugin` — the same subset A4.3's
+revert executor already scoped itself to); every other whitelisted action returns an honest
+`not_implemented` result rather than a fragile guess, and reporting results back to the API is deferred
+to A7.2 ("Legacy outbound polling path completion") since no such endpoint exists yet. `SafeMode`
+(local, consecutive-failure-triggered) and `KillSwitch` (remote-triggered, though the backend delivery
+mechanism itself — most likely riding along in the heartbeat response — doesn't exist yet either) both
+gate `WorkOrderPoller` before it claims anything. A6.2a (`ActionWhitelist`/`WorkOrderValidator`) was
+pulled forward ahead of A6.1b in the plan's own commit order since `WorkOrderPoller` has a hard
+dependency on both — same reasoning as A4's own out-of-order build. Caught and fixed one real latent
+bug before it shipped: the original `composer.json` autoload map let Composer derive `Core/Hmac.php`
+from the namespace and silently resolve it against the real `core/Hmac.php` only because macOS's
+filesystem is case-insensitive — would have 500'd on any case-sensitive host. 66 tests passing.
+
+### Task A7 — WordPress Plugin: Dual Execution Path ✅ Done
+- [x] A7.1 `wp7/`: `AbilitiesRegistrar.php`, `MCPEndpoints.php` (localhost-only), `ActionExecutor.php`
   (§4.1, §4.2).
-- [ ] A7.2 Legacy outbound polling path completion + integration test against Task A5 endpoints.
-- [ ] A7.3 `CapabilityRouter.php` version-detection logic: routes to WP7 native path vs. legacy path.
+- [x] A7.2 Legacy outbound polling path completion + integration test against Task A5 endpoints.
+- [x] A7.3 `CapabilityRouter.php` version-detection logic: routes to WP7 native path vs. legacy path.
+
+**Definition of done — verified 2026-07-09:** `wp7/ActionExecutor.php` is the single execution
+authority both paths delegate to (extracted out of `WorkOrderPoller`, which originally had its own
+copy) — nothing about the 4 implemented actions is actually WP7-specific, only *discovery* differs
+between MCP-invoked and outbound-polling-claimed. `AbilitiesRegistrar`/`MCPEndpoints` are an explicitly
+flagged structural stand-in: the hook name, `wp_register_ability()`'s argument shape, and the MCP route
+shape are built from the architecture doc's description, not a confirmed reference against WP7's real,
+still-evolving Abilities/MCP API — agreed with the user up front rather than guessing silently, and
+called out inline in both files for whoever verifies against the real core API later. A background
+security review caught a real bug before it shipped further: `MCPEndpoints` originally gated its
+execute endpoint on `REMOTE_ADDR` alone, which is meaningless on the (extremely common) nginx-reverse-
+proxying-to-PHP-FPM-on-the-same-host topology — fixed by requiring the same site-secret HMAC signature
+every other plugin-originated request already uses, with loopback kept only as defense-in-depth on top
+of that.
+
+A7.2 completed the claim round-trip A5b.1 left unfinished: `POST /api/work-orders/:id/result`
+(site-HMAC authed) is the execution-report endpoint `armDeadMansSwitch`'s own comment already called
+out as needed but was never built — `markWorkOrderExecuted` (packages/db) transitions claimed->executed
+and arms the dead man's switch only on a successful result, verified against real
+`graphile_worker.jobs` rows. `WorkOrderPoller` now reports every result back, fire-and-forget like
+every other outbound call in this plugin, with a named limitation (no retry-across-requests for a
+dropped report, unlike Heartbeat/EventQueue).
+
+The A7.2 integration test (`tests/Integration/LegacyPollingTest.php`) needed its own bootstrap — WP_Mock
+pre-declares WP function names process-wide, making it impossible to also define real (curl-backed)
+implementations of those names in the same PHPUnit run — so it's a separate `phpunit-integration.xml.dist`
+config (`composer test:integration`, never part of plain `composer test`/CI) that provisions its own
+org/site/work_order rows via PDO (including a PHP port of the AES-256-GCM site-secret envelope) and
+self-skips if `localhost:4000/healthz` or local Postgres is unreachable. Verified for real before
+committing: ran `apps/api` on a throwaway port (4000 is occupied on this dev machine by an unrelated
+local WP tool) and confirmed the full claim->validate->execute->report->arm-switch pipeline succeeds
+end to end against the real running system, not just that the code compiles.
+
+91 plugin unit tests passing (plus the integration suite's self-skip confirmed clean against a real
+Docker outage/recovery mid-session), plus 15 new `apps/api`/`packages/db` tests for the result-report
+endpoint. Running totals: 89 across `packages/shared`+`packages/db` (62+27, `packages/shared`
+untouched by A7), 56 in `apps/api`.
 
 ### Task A8 — Audit Log Wiring & Immutability
-- [ ] A8.1 Every mutating action across A3–A7 writes an `audit_log` row (actor, summary in plain
+- [x] A8.1 Every mutating action across A3–A7 writes an `audit_log` row (actor, summary in plain
   English, evidence).
-- [ ] A8.2 Verify append-only enforcement with an automated test that attempts UPDATE/DELETE and
+- [x] A8.2 Verify append-only enforcement with an automated test that attempts UPDATE/DELETE and
   expects rejection.
 
+**Definition of done — verified 2026-07-09:** A8.1's own acceptance check is
+`apps/api/src/audit-trail.test.ts` — a single test driving the real incident->issue->approve->
+claim->execute->dead-man's-switch-fire->revert->escalate pipeline through the actual HTTP routes/
+task functions (not repository calls in isolation) and asserting the exact ordered `event_type`
+sequence landed in `audit_log`, all sharing one `incident_id`. Writing that test surfaced one real
+gap: `issueWorkOrder` (`packages/db/src/repositories/work-orders.ts`) was the one mutating action in
+the A3-A7 chain that never wrote its own audit row — approve/decline/claim/execute/revert all did,
+issuance didn't. Fixed by logging `work_order_issued`/`work_order_awaiting_approval` inside
+`issueWorkOrder` itself (not `issueWorkOrderWithPolicy`), so a revert's own system-initiated
+corrective work order gets the same coverage as a policy-gated one from a single write site.
+
+A8.2's append-only test (`packages/db/src/repositories/audit-log.test.ts`, built in A2.3) already
+covered both raw-SQL and Drizzle-ORM UPDATE/DELETE rejection — nothing to add there. What was actually
+missing was CI wiring: `.github/workflows/ci.yml` had no test step at all. Added a `test` job that
+runs `supabase start` (not a bare `postgres:` service container — several existing suites sign in a
+real Supabase Auth user via `supabaseAdmin.auth.admin.createUser`, which needs GoTrue + the auth
+schema, not just Postgres) plus `docker compose up -d minio` + bucket creation via the AWS CLI
+(preinstalled on `ubuntu-latest`), writes `apps/api/.env`/`packages/db/.env` from `supabase status -o
+env`, runs migrations, then `pnpm test`. Verified for real, not just "looks right": ran every step of
+the new job manually against this session's own local stack (env vars exported directly rather than
+overwriting the developer's real `.env` files) and confirmed all 146 tests pass (62 `packages/shared`
++ 27 `packages/db` + 57 `apps/api`) under that exact env-var wiring before committing the workflow.
+
 ### Task A9 — Security Hardening Pass
-- [ ] A9.1 Rate limit tuning against real traffic shapes from Track B's synthetic checks.
-- [ ] A9.2 PII redaction utility (§14.2) applied at the API boundary *before* anything reaches
+- [x] A9.1 Rate limit tuning against real traffic shapes from Track B's synthetic checks.
+- [x] A9.2 PII redaction utility (§14.2) applied at the API boundary *before* anything reaches
   Track B's LLM calls — no email, name, IP, or order detail ever serialized into an LLM prompt.
-- [ ] A9.3 Secrets audit against the §15.3 table — confirm nothing listed as "never" (LLM, logs,
+- [x] A9.3 Secrets audit against the §15.3 table — confirm nothing listed as "never" (LLM, logs,
   client-side) actually ends up there.
+
+**Definition of done — verified 2026-07-09:** A9.1's literal framing ("tune against Track B's
+synthetic traffic") isn't executable yet since Track B hasn't landed — tuned
+`apps/api/src/middleware/rate-limit.ts`'s `CONFIGS` to match §15.2's own reference numbers exactly
+instead of leaving the pre-A9 "starting points, not final" placeholders in place (heartbeat 6/60s,
+events 60/60s, work_claims 12/60s, probe 120/60s), updating the two test suites that hardcoded the
+old values. A9.2 shipped `packages/shared/src/pii-redaction.ts` (`redactPII`, exact-match field-name
+allowlist + regex email/IPv4/IPv6 scrubbing, 10 tests) as the contract Track B's future LLM router
+is expected to call on `LLMRequest.input` — no wired-in call site exists yet since the router
+doesn't either, matching this task's own scoping note. A9.3 is `SECURITY-AUDIT.md` (root) — a real
+grep-based sweep, not a checklist filled in from memory: found and documented one accepted, low-risk
+exception (two local-dev-only seed scripts print a secret/password to a developer's own terminal,
+same show-once rationale as `POST /api/sites`'s response) and confirmed the rest of §15.3's "never"
+column actually holds, explicitly marking what can't be verified yet (LLM/billing paths Track B
+hasn't built) rather than claiming full closure.
 
 ---
 

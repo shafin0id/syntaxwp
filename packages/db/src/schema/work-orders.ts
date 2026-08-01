@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, jsonb, integer, timestamp } from "drizzle-orm/pg-core";
 import { sites } from "./sites.js";
 import { incidents } from "./incidents.js";
 
@@ -12,9 +12,17 @@ export const workOrders = pgTable("work_orders", {
   action: text("action").notNull(),
   target: text("target"),
   parameters: jsonb("parameters"),
-  status: text("status").notNull().default("pending"), // pending|claimed|executed|reverted|expired
+  // awaiting_approval|pending|claimed|executed|reverted|expired|declined —
+  // see WORK_ORDER_STATUSES (packages/shared/src/work-order.ts) for what
+  // each means and the A3.4 comment there on awaiting_approval/declined.
+  status: text("status").notNull().default("pending"),
   risk: text("risk").notNull(),
   hmac: text("hmac").notNull(),
+  // How long the plugin's dead man's switch waits before auto-reverting if
+  // no "still healthy" confirmation arrives after executing this action
+  // (§9.2, A4.1) — part of the signed wire payload (WorkOrderSchema), so it
+  // must be persisted alongside the other signed fields, not derived later.
+  deadMansSwitchMs: integer("dead_mans_switch_ms").notNull(),
   issuedAt: timestamp("issued_at", { withTimezone: true }).defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   claimedAt: timestamp("claimed_at", { withTimezone: true }),
