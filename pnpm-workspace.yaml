@@ -6,9 +6,13 @@ overrides:
   hono: 4.12.25
 
 allowBuilds:
+  '@parcel/watcher': false
+  core-js: false
+  core-js-pure: false
   esbuild: true
   msw: true
   sharp: true
+  unrs-resolver: false
 
 onlyBuiltDependencies:
   - sharp
