@@ -37,7 +37,16 @@ export function AppShell({
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchFocused, setSearchFocused] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const router = useRouter()
+
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient()
+    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null))
+  }, [])
+
+  const displayName = userEmail ? userEmail.split("@")[0] : "Account"
+  const initial = displayName.charAt(0).toUpperCase()
 
   const searchRef = useRef<HTMLDivElement>(null)
 
@@ -208,12 +217,10 @@ export function AppShell({
                 onClick={() => setProfileOpen((v) => !v)}
                 className="flex items-center gap-2 rounded-lg border border-border bg-card p-1 pr-2 hover:bg-muted cursor-pointer"
               >
-                <img 
-                  src="/dp.png" 
-                  alt="Shafin Ahmad" 
-                  className="size-7 rounded-md object-cover border border-border/50 shadow-xs"
-                />
-                <span className="text-xs font-semibold text-foreground select-none ml-0.5">Shafin</span>
+                <span className="flex size-7 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground border border-border/50 shadow-xs">
+                  {initial}
+                </span>
+                <span className="text-xs font-semibold text-foreground select-none ml-0.5">{displayName}</span>
                 <ChevronDown className="size-4 text-muted-foreground" />
               </button>
 
@@ -223,8 +230,8 @@ export function AppShell({
                   <button className="fixed inset-0 z-10" onClick={() => setProfileOpen(false)} aria-label="Close" />
                   <div className="absolute right-0 top-full z-20 mt-1.5 w-56 rounded-xl border border-border bg-popover p-1.5 shadow-lg">
                     <div className="px-2.5 py-2 border-b border-border/80 mb-1">
-                      <p className="text-xs font-semibold text-foreground">Shafin Ahmad</p>
-                      <p className="text-2xs text-muted-foreground truncate">shafin@greenleafbotanicals.com</p>
+                      <p className="text-xs font-semibold text-foreground capitalize">{displayName}</p>
+                      <p className="text-2xs text-muted-foreground truncate">{userEmail ?? ""}</p>
                     </div>
                     <button
                       onClick={() => {

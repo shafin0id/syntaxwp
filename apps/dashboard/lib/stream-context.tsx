@@ -37,6 +37,10 @@ export function StreamProvider({ children }: { children: React.ReactNode }) {
       .then((r) => r.json())
       .then((data) => {
         if (seq !== refetchSeq.current) return; // a newer refetch already started
+        // Not authenticated (or any other non-2xx) means the API returned
+        // an error object, not an incident array — most visibly hit on
+        // /login itself, since this provider wraps the whole app.
+        if (!Array.isArray(data)) return;
         setIncidentsList(data.map(mapApiIncidentToDashboardIncident))
       })
       .catch(console.error)
@@ -46,6 +50,10 @@ export function StreamProvider({ children }: { children: React.ReactNode }) {
     let active = true
     let controller: AbortController | null = null
     let reconnectDelay = RECONNECT_BASE_MS
+
+    // This provider wraps the whole app (including /login itself), so it
+    // can mount before any session exists — skip the initial fetch/stream
+    // entirely rather than firing requests guaranteed to 401.
 
     // Native EventSource can't set an Authorization header, and every
     // dashboard.ts route (including /api/stream) now requires a session —
@@ -103,8 +111,11 @@ export function StreamProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    refetch()
-    connect()
+    getAccessToken().then((token) => {
+      if (!active || !token) return
+      refetch()
+      connect()
+    })
 
     const handleSiteChange = () => {
       controller?.abort()
